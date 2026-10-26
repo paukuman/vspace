@@ -13,7 +13,7 @@ class MainActivity : Activity() {
 
     private lateinit var container: LinearLayout
     private lateinit var log: TextView
-    private val REQ_PICK = 1001
+    private val reqPick = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,43 +24,67 @@ class MainActivity : Activity() {
         }
         scroll.addView(container, ViewGroup.LayoutParams(-1, -2))
         setContentView(scroll)
+    }
+
+    override fun onResume() {
+        super.onResume()
         refresh()
+    }
+
+    private fun btn(text: String, onClick: () -> Unit) = Button(this).apply {
+        this.text = text
+        setOnClickListener { onClick() }
     }
 
     private fun refresh() {
         container.removeAllViews()
-        container.addView(TextView(this).apply { text = "VSpace - Tahap 1"; textSize = 22f })
+        container.addView(TextView(this).apply { text = "VSpace - Tahap 2"; textSize = 22f })
 
-        container.addView(Button(this).apply {
-            text = "Pilih APK untuk di-clone"
-            setOnClickListener {
-                val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                    addCategory(Intent.CATEGORY_OPENABLE)
-                    type = "*/*"
-                }
-                startActivityForResult(i, REQ_PICK)
+        container.addView(btn("Pilih APK untuk di-clone") {
+            val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
             }
+            startActivityForResult(i, reqPick)
         })
 
-        log = TextView(this).apply { setPadding(0, 16, 0, 16) }
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(btn("Lihat log") { log.text = VLog.read() })
+        row.addView(btn("Hapus log") { VLog.clear(); log.text = "Log dihapus" })
+        container.addView(row)
+
+        log = TextView(this).apply { setPadding(0, 16, 0, 16); setTextIsSelectable(true) }
         container.addView(log)
 
-        VirtualInstaller.list(this).forEach { g ->
+        VirtualInstaller.list(this).forEachIndexed { index, g ->
+            val slot = index % 3
             container.addView(TextView(this).apply {
-                text = "${g.label}\n${g.pkg}\nActivity: ${g.activities.size} | lib: ${g.libDir.list()?.size ?: 0} file .so"
+                text = "${g.label}\n${g.pkg}\nActivity: ${g.activities.size} | ABI: ${g.abi ?: "-"} | " +
+                    "lib: ${g.libDir.list()?.size ?: 0} file .so"
                 setPadding(0, 24, 0, 0)
             })
-            container.addView(Button(this).apply {
-                text = "Tes load kelas"
-                setOnClickListener { log.text = VirtualInstaller.testLoad(this@MainActivity, g) }
-            })
+            container.addView(btn("Jalankan (slot $slot)") { launch(g, slot) })
+            container.addView(btn("Tes load kelas") { log.text = VirtualInstaller.testLoad(this, g) })
+            container.addView(btn("Hapus") { VirtualInstaller.delete(this, g); refresh() })
         }
+    }
+
+    private fun launch(g: Guest, slot: Int) {
+        val cls = VirtualInstaller.launcher(g) ?: g.activities.firstOrNull()
+        if (cls == null) { log.text = "Tidak ada Activity untuk dijalankan"; return }
+        VLog.w("launch", "${g.pkg}/$cls di slot $slot")
+        val i = Intent()
+            .setClassName(packageName, "com.example.vspace.Stub$slot")
+            .putExtra(Const.EXTRA_PKG, g.pkg)
+            .putExtra(Const.EXTRA_CLS, cls)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(i)
     }
 
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_PICK || resultCode != RESULT_OK) return
+        if (requestCode != reqPick || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         log.text = "Menyalin & memparse APK..."
         Thread {

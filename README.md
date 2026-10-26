@@ -1,15 +1,17 @@
-# VSpace (Tahap 1)
+# VSpace (Tahap 2)
 
-Yang sudah ada:
-- Pilih APK -> disalin ke folder privat app (files/virtual/<package>/base.apk)
-- Parse package name, label, daftar Activity
-- Ekstrak native .so sesuai ABI device
-- Tes memuat kelas Activity guest lewat DexClassLoader
+Tahap 1: salin APK ke folder privat, parse, ekstrak .so, tes load kelas.
+Tahap 2 (baru, BELUM TERUJI): menjalankan Activity guest lewat stub.
+  - Stub0/1/2 = 3 slot proses (:p0 :p1 :p2)
+  - GuestHooks: hook IPackageManager + ActivityThread.mH (LaunchActivityItem)
+  - Hidden API bypass (LSPosed hiddenapibypass)
+  - Cari Activity launcher dengan membaca AndroidManifest biner
+  - Log ke file (tombol "Lihat log" di UI)
 
-Yang BELUM ada (tahap berikutnya):
-- Stub Activity + hook startActivity/ActivityThread (Tahap 2)
-- Virtual PackageManager/ActivityManager (Tahap 3)
-- IO redirect native (Tahap 4)
-- Multi-proses & isolasi data (Tahap 5)
-
-Cara build: push ke GitHub -> tab Actions -> "Build APK" -> download artifact.
+Batasan yang diketahui:
+  - startActivity DARI DALAM guest belum di-hook (Tahap 3) -> pindah layar di guest bisa crash
+  - ContentProvider guest tidak di-install (Firebase/androidx startup bisa bermasalah)
+  - Binder call dengan package name guest bisa SecurityException (izin, notifikasi, dll)
+  - IO native belum diredirect (Tahap 4); data Java API sudah ke folder guest
+  - APK split/XAPK belum didukung; game 32-bit-only di device 64-bit belum didukung
+  - targetSdk sengaja 28

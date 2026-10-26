@@ -9,14 +9,20 @@ android {
 
     defaultConfig {
         applicationId = "com.example.vspace"
-        minSdk = 24
-        targetSdk = 34
-        versionCode = 1
-        versionName = "0.1"
+        // minSdk 28 supaya boleh targetSdk 28 (menghindari aturan DCL/exec/scoped storage yang memberatkan virtual app).
+        // Target pengguna tetap Android 10-16.
+        minSdk = 28
+        targetSdk = 28
+        versionCode = 2
+        versionName = "0.2"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+}
+
+dependencies {
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
 }

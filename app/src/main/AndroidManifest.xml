@@ -1,15 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
+        android:name=".VApp"
         android:label="VSpace"
+        android:hardwareAccelerated="true"
         android:theme="@android:style/Theme.DeviceDefault.Light">
-        <activity
-            android:name=".MainActivity"
-            android:exported="true">
+
+        <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Slot stub: tiap slot = 1 proses terpisah. Activity guest "menyamar" jadi stub ini. -->
+        <activity
+            android:name=".Stub0"
+            android:process=":p0"
+            android:taskAffinity="com.example.vspace.slot0"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density|colorMode"
+            android:theme="@android:style/Theme.NoTitleBar" />
+        <activity
+            android:name=".Stub1"
+            android:process=":p1"
+            android:taskAffinity="com.example.vspace.slot1"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density|colorMode"
+            android:theme="@android:style/Theme.NoTitleBar" />
+        <activity
+            android:name=".Stub2"
+            android:process=":p2"
+            android:taskAffinity="com.example.vspace.slot2"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density|colorMode"
+            android:theme="@android:style/Theme.NoTitleBar" />
     </application>
 </manifest>
