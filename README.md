@@ -1,7 +1,7 @@
 # VSpace (Tahap 2)
 
 Tahap 1: salin APK ke folder privat, parse, ekstrak .so, tes load kelas.
-Tahap 2 (baru, BELUM TERUJI): menjalankan Activity guest lewat stub.
+Tahap 2.1: daftar app terinstall + split APK + hook startActivity + log crash (BELUM TERUJI).
   - Stub0/1/2 = 3 slot proses (:p0 :p1 :p2)
   - GuestHooks: hook IPackageManager + ActivityThread.mH (LaunchActivityItem)
   - Hidden API bypass (LSPosed hiddenapibypass)

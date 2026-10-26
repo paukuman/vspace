@@ -15,16 +15,20 @@ object Const {
 }
 
 /**
- * TAHAP 2 (dijalankan di proses slot):
- *  1) Hook IPackageManager supaya framework menganggap paket guest "terinstall"
- *     (LoadedApk.initializeJavaContextClassLoader memanggil getPackageInfo).
- *  2) Hook ActivityThread.mH: saat Android meluncurkan Stub, ganti Intent + ActivityInfo
- *     di LaunchActivityItem menjadi milik Activity guest.
+ * Dijalankan di proses slot:
+ *  1) Hook IPackageManager  -> paket guest dianggap "terinstall".
+ *  2) Hook IActivityTaskManager.startActivity -> Activity guest membuka Activity guest lain lewat stub.
+ *  3) Hook ActivityThread.mH -> Stub diganti Activity guest saat diluncurkan.
  */
 object GuestHooks {
 
+    private var dumped = 0
+
     fun install(app: Application) {
-        hookPackageManager(app)
+        val proc = Application.getProcessName()
+        val slot = proc.substringAfter(":p", "0").toIntOrNull() ?: 0
+        try { hookPackageManager(app) } catch (t: Throwable) { VLog.e("hookPM", t) }
+        try { hookActivityTaskManager(app, slot) } catch (t: Throwable) { VLog.e("hookATM", t) }
         hookHandler(app)
     }
 
@@ -37,8 +41,9 @@ object GuestHooks {
         val proxy = Proxy.newProxyInstance(app.classLoader, arrayOf(iface)) { _, m, args ->
             if (args != null && args.isNotEmpty() && args[0] is String) {
                 val name = m.name
-                if (name == "getPackageInfo" || name == "getApplicationInfo") {
-                    val g = VirtualInstaller.get(app, args[0] as String, withLabel = false)
+                val target = args[0] as String
+                if ((name == "getPackageInfo" || name == "getApplicationInfo") && VirtualInstaller.exists(app, target)) {
+                    val g = VirtualInstaller.get(app, target, withLabel = false)
                     if (g != null) {
                         if (name == "getPackageInfo") {
                             val flags = ((args.getOrNull(1) as? Number)?.toLong() ?: 0L).toInt() and 0x7FFFFFFF
@@ -60,7 +65,59 @@ object GuestHooks {
         Refl.field(at, "sPackageManager").set(null, proxy)
     }
 
-    // ---------- 2. ActivityThread.mH ----------
+    // ---------- 2. startActivity dari dalam guest ----------
+    private fun hookActivityTaskManager(app: Application, slot: Int) {
+        val atm = Class.forName("android.app.ActivityTaskManager")
+        val singleton = Refl.field(atm, "IActivityTaskManagerSingleton").get(null)!!
+        val getM = Class.forName("android.util.Singleton").getDeclaredMethod("get").apply { isAccessible = true }
+        val real = getM.invoke(singleton)
+        val iface = Class.forName("android.app.IActivityTaskManager")
+
+        val proxy = Proxy.newProxyInstance(app.classLoader, arrayOf(iface)) { _, m, args ->
+            try {
+                if (args != null && m.name.startsWith("startActivity")) rewriteStart(app, slot, args)
+            } catch (t: Throwable) {
+                VLog.e("startActivity", t)
+            }
+            try {
+                if (args == null) m.invoke(real) else m.invoke(real, *args)
+            } catch (e: InvocationTargetException) {
+                throw e.targetException
+            }
+        }
+        Refl.set(singleton, "mInstance", proxy)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun rewriteStart(app: Application, slot: Int, argsIn: Array<*>) {
+        val args = argsIn as Array<Any?>
+        var pkgIdx = -1
+        var intentIdx = -1
+        for (i in args.indices) {
+            if (pkgIdx < 0 && args[i] is String) pkgIdx = i
+            if (intentIdx < 0 && args[i] is Intent) intentIdx = i
+        }
+        if (pkgIdx < 0 || intentIdx < 0) return
+        val callingPkg = args[pkgIdx] as String
+        if (!VirtualInstaller.exists(app, callingPkg)) return // pemanggil bukan guest
+
+        args[pkgIdx] = app.packageName // sistem memeriksa package milik UID pemanggil
+        val intent = args[intentIdx] as Intent
+        val comp = intent.component
+        if (comp != null && VirtualInstaller.exists(app, comp.packageName)) {
+            val stub = Intent(intent)
+            stub.setPackage(null)
+            stub.component = ComponentName(app.packageName, "com.example.vspace.Stub$slot")
+            stub.putExtra(Const.EXTRA_PKG, comp.packageName)
+            stub.putExtra(Const.EXTRA_CLS, comp.className)
+            args[intentIdx] = stub
+            VLog.w("startActivity", "${comp.packageName}/${comp.className} -> Stub$slot")
+        } else {
+            VLog.w("startActivity", "tidak diubah: intent=$intent")
+        }
+    }
+
+    // ---------- 3. ActivityThread.mH ----------
     private fun hookHandler(app: Application) {
         val at = Class.forName("android.app.ActivityThread")
         val cur = at.getDeclaredMethod("currentActivityThread").apply { isAccessible = true }.invoke(null)!!
@@ -82,6 +139,8 @@ object GuestHooks {
 
     private fun patchTransaction(app: Application, tx: Any?) {
         if (tx == null) return
+        var patched = false
+        val seen = ArrayList<String>()
         var c: Class<*>? = tx.javaClass
         while (c != null && c != Any::class.java) {
             for (f in c.declaredFields) {
@@ -90,24 +149,32 @@ object GuestHooks {
                 val v = f.get(tx) ?: continue
                 if (v is List<*>) {
                     v.forEach { item ->
-                        if (item != null && item.javaClass.name.endsWith("LaunchActivityItem")) patchLaunch(app, item)
+                        if (item != null) {
+                            seen.add(item.javaClass.simpleName)
+                            if (item.javaClass.name.endsWith("LaunchActivityItem") && patchLaunch(app, item)) patched = true
+                        }
                     }
                 } else if (v.javaClass.name.endsWith("LaunchActivityItem")) {
-                    patchLaunch(app, v)
+                    seen.add(v.javaClass.simpleName)
+                    if (patchLaunch(app, v)) patched = true
                 }
             }
             c = c.superclass
         }
+        if (!patched && dumped < 8) {
+            dumped++
+            VLog.w("tx", "transaksi tanpa patch, item=$seen")
+        }
     }
 
-    private fun patchLaunch(app: Application, item: Any) {
-        val intent = Refl.get(item, "mIntent") as? Intent ?: return
-        val gp = intent.getStringExtra(Const.EXTRA_PKG) ?: return
-        val gc = intent.getStringExtra(Const.EXTRA_CLS) ?: return
+    private fun patchLaunch(app: Application, item: Any): Boolean {
+        val intent = Refl.get(item, "mIntent") as? Intent ?: return false
+        val gp = intent.getStringExtra(Const.EXTRA_PKG) ?: return false
+        val gc = intent.getStringExtra(Const.EXTRA_CLS) ?: return false
         val g = VirtualInstaller.get(app, gp, withLabel = false)
-        if (g == null) { VLog.w("patch", "guest $gp tidak ditemukan"); return }
+        if (g == null) { VLog.w("patch", "guest $gp tidak ditemukan"); return false }
         val info = g.activityInfo(app, gc)
-        if (info == null) { VLog.w("patch", "ActivityInfo $gc tidak ditemukan"); return }
+        if (info == null) { VLog.w("patch", "ActivityInfo $gc tidak ditemukan"); return false }
 
         val ni = Intent(intent)
         ni.removeExtra(Const.EXTRA_PKG)
@@ -116,6 +183,11 @@ object GuestHooks {
 
         Refl.set(item, "mInfo", info)
         Refl.set(item, "mIntent", ni)
-        VLog.w("patch", "Stub diganti -> $gp/$gc")
+        VLog.w(
+            "patch",
+            "Stub diganti -> $gp/$gc | apk=${g.apk.exists()} splits=${g.splits.size} " +
+                "so=${g.libDir.list()?.size ?: 0} abi=${g.abi}"
+        )
+        return true
     }
 }

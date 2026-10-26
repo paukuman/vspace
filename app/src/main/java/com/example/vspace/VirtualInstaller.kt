@@ -18,6 +18,7 @@ class Guest(
     val pkg: String,
     val label: String,
     val apk: File,
+    val splits: List<File>,
     val libDir: File,
     val dataDir: File,
     val abi: String?,
@@ -28,6 +29,11 @@ class Guest(
         val n = ApplicationInfo(ai)
         n.sourceDir = apk.path
         n.publicSourceDir = apk.path
+        if (splits.isNotEmpty()) {
+            val arr = splits.map { it.path }.toTypedArray()
+            n.splitSourceDirs = arr
+            n.splitPublicSourceDirs = arr
+        }
         n.nativeLibraryDir = libDir.path
         n.dataDir = dataDir.path
         n.deviceProtectedDataDir = dataDir.path
@@ -64,47 +70,74 @@ object VirtualInstaller {
 
     private fun root(ctx: Context) = File(ctx.filesDir, "virtual").apply { mkdirs() }
 
+    fun exists(ctx: Context, pkg: String): Boolean = File(File(root(ctx), pkg), "base.apk").exists()
+
+    /** Dari file APK tunggal (file picker). */
     fun install(ctx: Context, uri: Uri): Guest {
         val tmp = File(ctx.cacheDir, "import.apk")
         ctx.contentResolver.openInputStream(uri)!!.use { i ->
             tmp.outputStream().use { o -> i.copyTo(o) }
         }
+        return commit(ctx, tmp, emptyList())
+    }
+
+    /** Dari app yang sudah terinstall (base.apk + semua split). */
+    fun installFromInstalled(ctx: Context, pkg: String): Guest {
+        val ai = ctx.packageManager.getApplicationInfo(pkg, 0)
+        val tmp = File(ctx.cacheDir, "import.apk")
+        File(ai.sourceDir).copyTo(tmp, overwrite = true)
+        val splits = ai.splitSourceDirs?.map { File(it) } ?: emptyList()
+        return commit(ctx, tmp, splits)
+    }
+
+    private fun commit(ctx: Context, baseTmp: File, splitSrc: List<File>): Guest {
         val pm = ctx.packageManager
-        val info = pm.getPackageArchiveInfo(tmp.absolutePath, PackageManager.GET_ACTIVITIES)
-            ?: run { tmp.delete(); error("File bukan APK yang valid (catatan: XAPK/APKS/split belum didukung)") }
+        val info = pm.getPackageArchiveInfo(baseTmp.absolutePath, PackageManager.GET_ACTIVITIES)
+            ?: run { baseTmp.delete(); error("File bukan APK yang valid (XAPK/APKS belum didukung)") }
         val pkg = info.packageName
+        if (pkg == ctx.packageName) { baseTmp.delete(); error("Tidak bisa meng-clone VSpace sendiri") }
 
         val dir = File(root(ctx), pkg).apply { mkdirs() }
         val apk = File(dir, "base.apk")
         if (apk.exists()) { apk.setWritable(true); apk.delete() }
-        tmp.copyTo(apk, overwrite = true)
-        tmp.delete()
+        baseTmp.copyTo(apk, overwrite = true)
+        baseTmp.delete()
 
-        // Native lib: pilih ABI yang cocok dengan bitness proses host (32/64-bit)
+        val splitDir = File(dir, "splits")
+        splitDir.listFiles()?.forEach { it.setWritable(true); it.delete() }
+        splitDir.mkdirs()
+        val splits = splitSrc.map { s -> File(splitDir, s.name).also { s.copyTo(it, overwrite = true) } }
+        val allApks = listOf(apk) + splits
+
+        // Native lib dari base + semua split, sesuai bitness proses host
         val libDir = File(dir, "lib").apply { mkdirs() }
         libDir.listFiles()?.forEach { it.setWritable(true); it.delete() }
         val supported = if (Process.is64Bit()) Build.SUPPORTED_64_BIT_ABIS else Build.SUPPORTED_32_BIT_ABIS
-        var chosen: String? = null
-        ZipFile(apk).use { z ->
-            val names = z.entries().asSequence().map { it.name }.toList()
-            val available = names.filter { it.startsWith("lib/") }.map { it.split('/')[1] }.distinct()
-            chosen = supported.firstOrNull { it in available }
-            if (available.isNotEmpty() && chosen == null) {
-                apk.delete()
-                error("ABI tidak cocok. Game punya $available, proses VSpace butuh ${supported.toList()}")
+        val available = allApks.flatMap { f ->
+            ZipFile(f).use { z ->
+                z.entries().asSequence().map { it.name.split('/') }
+                    .filter { it.size >= 3 && it[0] == "lib" }.map { it[1] }.toList()
             }
-            if (chosen != null) {
-                z.entries().asSequence()
-                    .filter { it.name.startsWith("lib/$chosen/") && it.name.endsWith(".so") }
-                    .forEach { e ->
-                        val out = File(libDir, File(e.name).name)
-                        out.outputStream().use { o -> z.getInputStream(e).use { it.copyTo(o) } }
-                        out.setReadOnly()
-                    }
+        }.distinct()
+        val chosen = supported.firstOrNull { it in available }
+        if (available.isNotEmpty() && chosen == null) {
+            error("ABI tidak cocok. Game punya $available, proses VSpace butuh ${supported.toList()}")
+        }
+        if (chosen != null) {
+            allApks.forEach { f ->
+                ZipFile(f).use { z ->
+                    z.entries().asSequence()
+                        .filter { it.name.startsWith("lib/$chosen/") && it.name.endsWith(".so") }
+                        .forEach { e ->
+                            val out = File(libDir, File(e.name).name)
+                            out.outputStream().use { o -> z.getInputStream(e).use { it.copyTo(o) } }
+                            out.setReadOnly()
+                        }
+                }
             }
         }
         File(dir, "abi.txt").writeText(chosen ?: "")
-        apk.setReadOnly() // dex yang di-load wajib read-only di Android 14+
+        allApks.forEach { it.setReadOnly() } // dex wajib read-only di Android 14+
 
         return describe(ctx, dir, true)!!
     }
@@ -135,10 +168,13 @@ object VirtualInstaller {
             } catch (t: Throwable) { }
         }
         val abi = File(dir, "abi.txt").takeIf { it.exists() }?.readText()?.ifEmpty { null }
+        val splits = File(dir, "splits").listFiles()?.filter { it.name.endsWith(".apk") }?.sortedBy { it.name }
+            ?: emptyList()
         return Guest(
             pkg = info.packageName,
             label = label,
             apk = apk,
+            splits = splits,
             libDir = File(dir, "lib"),
             dataDir = File(dir, "data").apply { mkdirs() },
             abi = abi,
@@ -195,7 +231,6 @@ object VirtualInstaller {
         else -> "$pkg.$n"
     }
 
-    /** Tes sederhana (dari Tahap 1): bisakah kelas Activity dimuat lewat DexClassLoader? */
     fun testLoad(ctx: Context, g: Guest): String {
         return try {
             val odex = File(g.apk.parentFile, "odex").apply { mkdirs() }

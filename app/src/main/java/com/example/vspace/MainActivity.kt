@@ -14,6 +14,7 @@ class MainActivity : Activity() {
     private lateinit var container: LinearLayout
     private lateinit var log: TextView
     private val reqPick = 1001
+    private val reqInstalled = 1002
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,9 +39,12 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         container.removeAllViews()
-        container.addView(TextView(this).apply { text = "VSpace - Tahap 2"; textSize = 22f })
+        container.addView(TextView(this).apply { text = "VSpace - Tahap 2.1"; textSize = 22f })
 
-        container.addView(btn("Pilih APK untuk di-clone") {
+        container.addView(btn("Pilih dari app terinstall") {
+            startActivityForResult(Intent(this, PickerActivity::class.java), reqInstalled)
+        })
+        container.addView(btn("Pilih file APK") {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
                 addCategory(Intent.CATEGORY_OPENABLE)
                 type = "*/*"
@@ -84,13 +88,18 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != reqPick || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
-        log.text = "Menyalin & memparse APK..."
+        if (resultCode != RESULT_OK) return
+        val job: (() -> Guest)? = when (requestCode) {
+            reqPick -> data?.data?.let { uri -> { VirtualInstaller.install(this, uri) } }
+            reqInstalled -> data?.getStringExtra("pkg")?.let { pkg -> { VirtualInstaller.installFromInstalled(this, pkg) } }
+            else -> null
+        }
+        if (job == null) return
+        log.text = "Menyalin & memparse APK (game besar butuh waktu)..."
         Thread {
             val msg = try {
-                val g = VirtualInstaller.install(this, uri)
-                "Berhasil: ${g.label} (${g.pkg})"
+                val g = job()
+                "Berhasil: ${g.label} (${g.pkg}) | split: ${g.splits.size} | .so: ${g.libDir.list()?.size ?: 0}"
             } catch (t: Throwable) {
                 "Gagal: ${t.message}"
             }
