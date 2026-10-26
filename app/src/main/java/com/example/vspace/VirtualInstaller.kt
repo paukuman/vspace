@@ -33,6 +33,9 @@ class Guest(
             val arr = splits.map { it.path }.toTypedArray()
             n.splitSourceDirs = arr
             n.splitPublicSourceDirs = arr
+            // Android 10 (LoadedApk.setupJitProfileSupport) membaca splitNames[i-1]; tidak boleh null
+            n.splitNames = splits.map { it.name.removeSuffix(".apk").removePrefix("split_") }.toTypedArray()
+            try { Refl.set(n, "splitFlags", IntArray(splits.size)) } catch (t: Throwable) { }
         }
         n.nativeLibraryDir = libDir.path
         n.dataDir = dataDir.path
