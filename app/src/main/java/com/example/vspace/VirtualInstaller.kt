@@ -41,7 +41,10 @@ class Guest(
         n.nativeLibraryDir = libDir.path
         n.dataDir = dataDir.path
         n.deviceProtectedDataDir = dataDir.path
-        n.uid = Process.myUid() // harus userId yang sama dgn proses host
+        // Trik: ContextImpl memakai nama paket PROSES (host) sebagai opPackageName bila ApplicationInfo.uid == SYSTEM_UID
+        // dan proses bukan system. Dengan begitu Settings/AppOps/ContentResolver tidak menolak package guest.
+        // (userId 1000 = user 0, jadi hanya aman di user utama.)
+        n.uid = Process.SYSTEM_UID
         try { Refl.set(n, "credentialProtectedDataDir", dataDir.path) } catch (t: Throwable) { }
         try { if (abi != null) Refl.set(n, "primaryCpuAbi", abi) } catch (t: Throwable) { }
         return n
