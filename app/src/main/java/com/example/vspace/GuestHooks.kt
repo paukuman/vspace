@@ -1,6 +1,9 @@
 package com.example.vspace
 
 import android.app.Application
+import android.app.Instrumentation
+import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.content.ComponentName
 import android.content.Intent
 import android.os.Handler
@@ -23,6 +26,7 @@ object Const {
 object GuestHooks {
 
     private var dumped = 0
+    private val booted = HashSet<String>()
 
     fun install(app: Application) {
         val proc = Application.getProcessName()
@@ -176,6 +180,14 @@ object GuestHooks {
         val info = g.activityInfo(app, gc)
         if (info == null) { VLog.w("patch", "ActivityInfo $gc tidak ditemukan"); return false }
 
+        // Buat Application guest + ContentProvider-nya SEBELUM Activity di-instantiate
+        try {
+            bootGuest(app, g, info.applicationInfo, item)
+        } catch (t: Throwable) {
+            booted.remove(g.pkg)
+            VLog.e("boot", (t as? InvocationTargetException)?.targetException ?: t)
+        }
+
         val ni = Intent(intent)
         ni.removeExtra(Const.EXTRA_PKG)
         ni.removeExtra(Const.EXTRA_CLS)
@@ -189,5 +201,37 @@ object GuestHooks {
                 "so=${g.libDir.list()?.size ?: 0} abi=${g.abi}"
         )
         return true
+    }
+
+    /** Meniru ActivityThread.handleBindApplication untuk paket guest (sekali per proses). */
+    private fun bootGuest(app: Application, g: Guest, appInfo: ApplicationInfo, item: Any) {
+        if (!booted.add(g.pkg)) return
+        val atCls = Class.forName("android.app.ActivityThread")
+        val at = atCls.getDeclaredMethod("currentActivityThread").apply { isAccessible = true }.invoke(null)!!
+        val compatCls = Class.forName("android.content.res.CompatibilityInfo")
+        val compat = (try { Refl.get(item, "mCompatInfo") } catch (t: Throwable) { null })
+            ?: Refl.field(compatCls, "DEFAULT_COMPATIBILITY_INFO").get(null)
+
+        val getNoCheck = atCls.getDeclaredMethod("getPackageInfoNoCheck", ApplicationInfo::class.java, compatCls)
+            .apply { isAccessible = true }
+        val loadedApk = getNoCheck.invoke(at, appInfo, compat)!!
+
+        val make = loadedApk.javaClass.getDeclaredMethod(
+            "makeApplication", Boolean::class.javaPrimitiveType, Instrumentation::class.java
+        ).apply { isAccessible = true }
+        val guestApp = make.invoke(loadedApk, false, null) as Application
+        VLog.w("boot", "Application guest dibuat: ${guestApp.javaClass.name}")
+
+        val providers = g.providers(app)
+        if (providers.isNotEmpty()) {
+            val inst = atCls.getDeclaredMethod("installContentProviders", Context::class.java, List::class.java)
+                .apply { isAccessible = true }
+            inst.invoke(at, guestApp, providers)
+            VLog.w("boot", "ContentProvider dipasang: ${providers.size}")
+        }
+
+        val instrumentation = Refl.get(at, "mInstrumentation") as Instrumentation
+        instrumentation.callApplicationOnCreate(guestApp)
+        VLog.w("boot", "Application.onCreate selesai")
     }
 }

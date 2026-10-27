@@ -5,6 +5,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.ProviderInfo
 import android.content.res.AssetManager
 import android.net.Uri
 import android.os.Build
@@ -56,6 +57,19 @@ class Guest(
             if (a != null) pi.applicationInfo = patchApp(a)
         }
         return pi
+    }
+
+    /** ContentProvider guest untuk proses utama guest (meniru yang dilakukan handleBindApplication). */
+    fun providers(ctx: Context): List<ProviderInfo> {
+        val pi = ctx.packageManager.getPackageArchiveInfo(
+            apk.path, PackageManager.GET_PROVIDERS or PackageManager.GET_META_DATA
+        ) ?: return emptyList()
+        val app = pi.applicationInfo ?: return emptyList()
+        val patched = patchApp(app)
+        return (pi.providers ?: emptyArray())
+            .filter { it.enabled && (it.processName == null || it.processName == pkg) }
+            .sortedByDescending { it.initOrder }
+            .onEach { it.applicationInfo = patched }
     }
 
     fun activityInfo(ctx: Context, name: String): ActivityInfo? {
