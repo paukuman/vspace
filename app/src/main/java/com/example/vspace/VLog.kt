@@ -19,8 +19,8 @@ object VLog {
 
     fun e(tag: String, t: Throwable) = w(tag, Log.getStackTraceString(t))
 
-    fun read(): String = try {
-        file().readText().takeLast(8000).ifEmpty { "(log kosong)" }
+    fun read(max: Int = 8000): String = try {
+        file().readText().takeLast(max).ifEmpty { "(log kosong)" }
     } catch (t: Throwable) { "(log kosong)" }
 
     fun clear() { try { file().delete() } catch (t: Throwable) { } }

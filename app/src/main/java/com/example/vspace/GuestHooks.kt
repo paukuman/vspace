@@ -33,7 +33,29 @@ object GuestHooks {
         val slot = proc.substringAfter(":p", "0").toIntOrNull() ?: 0
         try { hookPackageManager(app) } catch (t: Throwable) { VLog.e("hookPM", t) }
         try { hookActivityTaskManager(app, slot) } catch (t: Throwable) { VLog.e("hookATM", t) }
+        try { dumpMiui() } catch (t: Throwable) { VLog.e("miui-dump", t) }
         hookHandler(app)
+    }
+
+    /** Diagnostik: struktur kelas MIUI yang bikin crash di ViewRootImpl (hanya ada di HP Xiaomi). */
+    private fun dumpMiui() {
+        var lines = 0
+        fun out(t: String) { if (lines++ < 90) VLog.w("miui", t.take(260)) }
+        for (cn in listOf("android.view.ForceDarkHelper", "android.os.MiuiBinderProxy")) {
+            val c = try { Class.forName(cn) } catch (t: Throwable) { out("$cn: tidak ada"); continue }
+            out("== $cn extends ${c.superclass?.name}")
+            c.declaredConstructors.forEach { out("C ${it.toGenericString()}") }
+            c.declaredFields.forEach { f ->
+                var v = ""
+                if (Modifier.isStatic(f.modifiers)) {
+                    v = try { f.isAccessible = true; " = " + f.get(null) } catch (t: Throwable) { "" }
+                }
+                out("F ${f.toGenericString()}$v")
+            }
+            val all = cn.endsWith("MiuiBinderProxy")
+            c.declaredMethods.filter { all || Regex("(?i)regist|observer|dark|config|proxy").containsMatchIn(it.name) }
+                .forEach { out("M ${it.toGenericString()}") }
+        }
     }
 
     // ---------- 1. PackageManager ----------
@@ -198,7 +220,8 @@ object GuestHooks {
         VLog.w(
             "patch",
             "Stub diganti -> $gp/$gc | apk=${g.apk.exists()} splits=${g.splits.size} " +
-                "so=${g.libDir.list()?.size ?: 0} abi=${g.abi}"
+                "so=${g.libDir.list()?.size ?: 0} abi=${g.abi} | uid=${info.applicationInfo.uid} " +
+                "proc=${info.applicationInfo.processName} seInfo=${info.applicationInfo.seInfo}"
         )
         return true
     }

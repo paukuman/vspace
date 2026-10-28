@@ -1,6 +1,9 @@
 package com.example.vspace
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.ViewGroup
@@ -39,7 +42,7 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         container.removeAllViews()
-        container.addView(TextView(this).apply { text = "VSpace - Tahap 2.1"; textSize = 22f })
+        container.addView(TextView(this).apply { text = "VSpace - Tahap 2.5"; textSize = 22f })
 
         container.addView(btn("Pilih dari app terinstall") {
             startActivityForResult(Intent(this, PickerActivity::class.java), reqInstalled)
@@ -55,6 +58,11 @@ class MainActivity : Activity() {
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(btn("Lihat log") { log.text = VLog.read() })
         row.addView(btn("Hapus log") { VLog.clear(); log.text = "Log dihapus" })
+        row.addView(btn("Salin log") {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("vspace-log", VLog.read(30000)))
+            log.text = "Log disalin ke clipboard (tempel di chat)"
+        })
         container.addView(row)
 
         log = TextView(this).apply { setPadding(0, 16, 0, 16); setTextIsSelectable(true) }
