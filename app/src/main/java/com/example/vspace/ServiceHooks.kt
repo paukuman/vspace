@@ -1,6 +1,7 @@
 package com.example.vspace
 
 import android.app.Application
+import android.content.Intent
 import android.os.IBinder
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Proxy
@@ -63,6 +64,20 @@ object ServiceHooks {
     private fun isGuest(app: Application, s: String): Boolean =
         guestCache.getOrPut(s) { VirtualInstaller.exists(app, s) }
 
+    /** Bind dari guest ke Google Play Services: GMS menolak package guest -> gagalkan saja agar tidak crash. */
+    private fun shouldBlockGmsBind(app: Application, args: Array<*>): Boolean {
+        var fromGuest = false
+        var gms = false
+        for (a in args) {
+            if (a is String && a.length in 3..200 && a.contains('.') && !a.contains('/') && isGuest(app, a)) fromGuest = true
+            if (a is Intent) {
+                val pkg = a.component?.packageName ?: a.getPackage()
+                if (pkg == "com.google.android.gms" || a.action?.startsWith("com.google.android.gms.") == true) gms = true
+            }
+        }
+        return fromGuest && gms
+    }
+
     fun rewrite(app: Application, tag: String, args: Array<*>?) {
         if (args == null) return
         @Suppress("UNCHECKED_CAST")
@@ -117,6 +132,10 @@ object ServiceHooks {
         val iface = Class.forName("android.app.IActivityManager")
         val proxy = Proxy.newProxyInstance(app.classLoader, arrayOf(iface)) { _, m, args ->
             try {
+                if (args != null && m.name.startsWith("bind") && shouldBlockGmsBind(app, args)) {
+                    if (seenTags.add("am.bind.gms")) VLog.w("svc", "bind ke Google Play Services diblokir (belum didukung)")
+                    return@newProxyInstance 0
+                }
                 rewrite(app, "am.${m.name}", args)
                 if (args == null) m.invoke(real) else m.invoke(real, *args)
             } catch (e: InvocationTargetException) {

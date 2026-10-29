@@ -3,6 +3,7 @@ package com.example.vspace
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.pm.ApplicationInfo
+import android.content.pm.ComponentInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.content.pm.ProviderInfo
@@ -81,6 +82,25 @@ class Guest(
             .filter { it.enabled && (it.processName == null || it.processName == pkg) }
             .sortedByDescending { it.initOrder }
             .onEach { it.applicationInfo = patched }
+    }
+
+    /** Jawaban untuk IPackageManager.getActivityInfo/getServiceInfo/getReceiverInfo/getProviderInfo. */
+    fun componentInfo(ctx: Context, method: String, cls: String): Any? {
+        val pi = ctx.packageManager.getPackageArchiveInfo(
+            apk.path,
+            PackageManager.GET_ACTIVITIES or PackageManager.GET_SERVICES or PackageManager.GET_RECEIVERS or
+                PackageManager.GET_PROVIDERS or PackageManager.GET_META_DATA
+        ) ?: return null
+        val app = pi.applicationInfo ?: return null
+        val arr: Array<out ComponentInfo>? = when (method) {
+            "getActivityInfo" -> pi.activities
+            "getReceiverInfo" -> pi.receivers
+            "getServiceInfo" -> pi.services
+            else -> pi.providers
+        }
+        val ci = arr?.firstOrNull { it.name == cls } ?: return null
+        ci.applicationInfo = patchApp(app)
+        return ci
     }
 
     fun activityInfo(ctx: Context, name: String): ActivityInfo? {

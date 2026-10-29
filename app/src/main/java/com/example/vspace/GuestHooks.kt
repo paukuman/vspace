@@ -65,6 +65,19 @@ object GuestHooks {
         val iface = Class.forName("android.content.pm.IPackageManager")
 
         val proxy = Proxy.newProxyInstance(app.classLoader, arrayOf(iface)) { _, m, args ->
+            // Komponen milik guest: jangan sentuh PackageManager asli
+            val first = args?.getOrNull(0)
+            if (first is ComponentName && VirtualInstaller.exists(app, first.packageName)) {
+                when (m.name) {
+                    "setComponentEnabledSetting" -> return@newProxyInstance null
+                    "getComponentEnabledSetting" -> return@newProxyInstance 0
+                    "getActivityInfo", "getServiceInfo", "getReceiverInfo", "getProviderInfo" -> {
+                        val g = VirtualInstaller.get(app, first.packageName, withLabel = false)
+                        val ci = g?.componentInfo(app, m.name, first.className)
+                        if (ci != null) return@newProxyInstance ci
+                    }
+                }
+            }
             if (args != null && args.isNotEmpty() && args[0] is String) {
                 val name = m.name
                 val target = args[0] as String
@@ -134,6 +147,9 @@ object GuestHooks {
         if (comp != null && VirtualInstaller.exists(app, comp.packageName)) {
             val stub = Intent(intent)
             stub.setPackage(null)
+            // Semua Activity guest memakai stub yang sama: flag ini membuat sistem salah mengirim ke instance lain
+            stub.flags = stub.flags and (Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT).inv()
             stub.component = ComponentName(app.packageName, "com.example.vspace.Stub$slot")
             stub.putExtra(Const.EXTRA_PKG, comp.packageName)
             stub.putExtra(Const.EXTRA_CLS, comp.className)
