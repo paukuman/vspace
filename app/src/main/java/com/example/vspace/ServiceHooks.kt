@@ -75,7 +75,9 @@ object ServiceHooks {
                 if (pkg == "com.google.android.gms" || a.action?.startsWith("com.google.android.gms.") == true) gms = true
             }
         }
-        return fromGuest && gms
+        // Di proses slot semua kode adalah guest. callingPackage berisi package HOST (trik uid=SYSTEM_UID),
+        // jadi jangan bergantung pada fromGuest.
+        return gms
     }
 
     fun rewrite(app: Application, tag: String, args: Array<*>?) {

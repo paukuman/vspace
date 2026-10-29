@@ -21,6 +21,7 @@ class VApp : Application() {
         val proc = try { Application.getProcessName() } catch (t: Throwable) { "" }
         if (proc.contains(":p")) {
             // Catat crash di proses guest ke file log (crash native/.so tidak tertangkap di sini)
+            MainLoopGuard.install()
             val prev = Thread.getDefaultUncaughtExceptionHandler()
             Thread.setDefaultUncaughtExceptionHandler { th, e ->
                 VLog.w("CRASH", "thread=${th.name}")
