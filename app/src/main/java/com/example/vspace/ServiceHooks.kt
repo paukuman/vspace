@@ -15,6 +15,10 @@ object ServiceHooks {
 
     private val guestCache = ConcurrentHashMap<String, Boolean>()
     private val seenTags: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val hooked = HashSet<String>()
+
+    // Service yang sengaja TIDAK dibungkus otomatis (punya hook sendiri / berisiko performa)
+    private val SKIP = setOf("package", "activity", "activity_task", "window", "input", "display", "media.camera")
 
     private val SERVICES = listOf(
         "notification" to "android.app.INotificationManager",
@@ -57,6 +61,11 @@ object ServiceHooks {
             hookActivityManager(app)
         } catch (t: Throwable) {
             failed.add("activity(${t.javaClass.simpleName}: ${t.message})")
+        }
+        try {
+            hookAuto(app)
+        } catch (t: Throwable) {
+            failed.add("auto(${t.javaClass.simpleName}: ${t.message})")
         }
         if (failed.isNotEmpty()) VLog.w("svc", "hook gagal: $failed")
     }
@@ -124,6 +133,29 @@ object ServiceHooks {
         @Suppress("UNCHECKED_CAST")
         val cache = Refl.field(sm, "sCache").get(null) as MutableMap<String, IBinder>
         cache[name] = binderProxy as IBinder
+        hooked.add(name)
+    }
+
+    /** Bungkus SEMUA service Java yang terdaftar: kelas interface dicari dari interfaceDescriptor binder-nya. */
+    private fun hookAuto(app: Application) {
+        val sm = Class.forName("android.os.ServiceManager")
+        @Suppress("UNCHECKED_CAST")
+        val names = (sm.getDeclaredMethod("listServices").invoke(null) as? Array<String>) ?: return
+        val getService = sm.getDeclaredMethod("getService", String::class.java)
+        var ok = 0
+        for (name in names) {
+            if (name in hooked || name in SKIP) continue
+            try {
+                val b = getService.invoke(null, name) as? IBinder ?: continue
+                val desc = b.interfaceDescriptor
+                if (desc.isNullOrEmpty() || !desc.contains('.')) continue
+                hookService(app, name, desc)
+                ok++
+            } catch (t: Throwable) {
+                // service native / kelas interface tidak ada: lewati
+            }
+        }
+        VLog.w("svc", "auto-hook: $ok service tambahan (total ${hooked.size})")
     }
 
     private fun hookActivityManager(app: Application) {

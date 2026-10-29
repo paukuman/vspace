@@ -212,14 +212,21 @@ object GuestHooks {
 
     private fun patchLaunch(app: Application, item: Any): Boolean {
         val intent = Refl.get(item, "mIntent") as? Intent ?: return false
-        val gp = intent.getStringExtra(Const.EXTRA_PKG) ?: return false
-        val gc = intent.getStringExtra(Const.EXTRA_CLS) ?: return false
+        val gp = intent.getStringExtra(Const.EXTRA_PKG)
+        val gc = intent.getStringExtra(Const.EXTRA_CLS)
+        if (gp == null || gc == null) {
+            if (intent.component?.className?.startsWith("com.example.vspace.Stub") == true) {
+                VLog.w("patch", "Stub diluncurkan TANPA extra guest: $intent")
+            }
+            return false
+        }
         val g = VirtualInstaller.get(app, gp, withLabel = false)
         if (g == null) { VLog.w("patch", "guest $gp tidak ditemukan"); return false }
         val info = g.activityInfo(app, gc)
         if (info == null) { VLog.w("patch", "ActivityInfo $gc tidak ditemukan"); return false }
 
         // Buat Application guest + ContentProvider-nya SEBELUM Activity di-instantiate
+        if (!booted.contains(g.pkg)) VLog.w("boot", "mulai ${g.pkg}")
         try {
             bootGuest(app, g, info.applicationInfo, item)
         } catch (t: Throwable) {

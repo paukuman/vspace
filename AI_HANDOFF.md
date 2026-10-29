@@ -74,6 +74,17 @@ Format: `[proses] tag: pesan`. Tag penting: `hook` (versi+pemasangan), `boot` (A
 `startActivity`, `svc` (penulisan ulang package per service.method, SEKALI per kombinasi), `tx` (transaksi tanpa patch, maks 8), `guard` (exception GMS diabaikan), `CRASH`.
 Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned by" = service sistem baru yang perlu ditambah ke `ServiceHooks.SERVICES`.
 
+## 7b. PRINSIP: generik dulu, bukan per-app (umpan balik user)
+User menegaskan: app ini harus mendukung SEMUA app, bukan menambal per-app. Jangan tambah workaround yang spesifik satu app.
+- Utamakan perbaikan tingkat framework (hook/emulasi perilaku sistem), bukan daftar manual yang tumbuh per crash.
+- Jujur soal batas: tidak ada virtual app yang 100% kompatibel. Pasti tidak jalan: butuh Google Play Services (login Google/Play Games/FCM),
+  deteksi lingkungan virtual/anti-tamper (perbankan, banyak game kompetitif), DRM tertentu. Target realistis: mayoritas app biasa + game offline/ringan.
+- Roadmap generik (urutan): (A) virtualisasi Service/Broadcast/PendingIntent (stub Service per slot + hook AM start/stop/bind/broadcast/getIntentSender);
+  (B) auto-hook semua service sistem [SELESAI 0.2.14]; (C) stub per launchMode + patch `NewIntentItem` + back stack yang benar;
+  (D) Tahap 4 IO redirect native + folder storage; (E) matriks uji ~10 app dari kategori berbeda (Java biasa, Unity, Flutter, WebView, sosial, perbankan[diharapkan gagal], app Google-sign-in);
+  (F) dukungan Android 11-16 (uji di HP Android 16 user).
+- Diagnostik harus tidak buta: jangan batasi log yang penting (pernah terpotong cap `tx` sehingga kegagalan tersembunyi).
+
 ## 8. Changelog (tambah entri baru DI BAWAH, jangan hapus yang lama)
 - **0.1 (Tahap 1)** — Proyek dasar + GitHub Actions. Pilih APK via file, salin ke folder privat, parse, ekstrak .so, tes `DexClassLoader`.
 - **0.2 (Tahap 2)** — Stub0/1/2 (proses :p0-:p2), `GuestHooks` (proxy IPackageManager, callback `mH` menambal `LaunchActivityItem`), hidden-API bypass, `launcher()` dari manifest biner, `VLog`. minSdk/targetSdk 28.
@@ -89,3 +100,4 @@ Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned
 - **0.2.11** — Tambah service: shortcut, launcherapps, telecom, isub, bluetooth_manager, clipboard, device_policy, role, carrier_config, power, user, storagestats, appwidget; log `svc` dedupe per tag. Bukti: ShortcutService "Calling package name mismatch".
 - **0.2.12** — PM proxy: no-op `set/getComponentEnabledSetting` guest, jawab `get*Info` dari APK; buang flag SINGLE_TOP/CLEAR_TOP/REORDER_TO_FRONT pada intent stub; blokir bind ke GMS (BUG: syarat `fromGuest` tidak pernah terpenuhi). Bukti: WhatsApp `setComponentEnabledSetting` SecurityException; CODM `NewIntentItem`.
 - **0.2.13** — Perbaikan blokir bind GMS (hapus syarat `fromGuest`, karena callingPackage=host akibat trik uid); tambah `MainLoopGuard` (abaikan exception berjejak GMS di main thread); tambah dokumen ini. Bukti: CODM crash `Unknown calling package name` tetap muncul di 0.2.12 tanpa log "diblokir".
+- **0.2.14** — `ServiceHooks.hookAuto`: bungkus SEMUA service Java dari `ServiceManager.listServices()` (kelas dari `interfaceDescriptor`), kecuali SKIP (package/activity/activity_task/window/input/display/media.camera) — menggantikan kebutuhan menambah daftar manual. Diagnostik: log `boot: mulai <pkg>` sebelum bootGuest; log `Stub diluncurkan TANPA extra guest` (tidak ter-cap); `VApp.installExitLogger` (shutdown hook mencatat stack pemanggil `System.exit` di proses guest); `VApp.logExitReasons` (Android 11+: `getHistoricalProcessExitReasons`, tag `exit-info`). Bukti: 8 Ball Pool mati diam-diam setelah `hook terpasang` tanpa log lain; CODM tidak menunjukkan `patch` untuk `CODMainActivity` setelah `startActivity -> Stub0` karena log `tx` ter-cap di 8. Catatan 0.2.13 terverifikasi sebagian: bind GMS diblokir (log `svc: bind ke Google Play Services diblokir`), CODM melewati dialog izin dan memanggil `CODMainActivity`.
