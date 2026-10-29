@@ -33,6 +33,7 @@ object GuestHooks {
         val slot = proc.substringAfter(":p", "0").toIntOrNull() ?: 0
         try { hookPackageManager(app) } catch (t: Throwable) { VLog.e("hookPM", t) }
         try { hookActivityTaskManager(app, slot) } catch (t: Throwable) { VLog.e("hookATM", t) }
+        try { ServiceHooks.install(app) } catch (t: Throwable) { VLog.e("hookSvc", t) }
         hookHandler(app)
     }
 
@@ -101,6 +102,7 @@ object GuestHooks {
         val proxy = Proxy.newProxyInstance(app.classLoader, arrayOf(iface)) { _, m, args ->
             try {
                 if (args != null && m.name.startsWith("startActivity")) rewriteStart(app, slot, args)
+                else ServiceHooks.rewrite(app, "atm.${m.name}", args)
             } catch (t: Throwable) {
                 VLog.e("startActivity", t)
             }
