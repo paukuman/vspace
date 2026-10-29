@@ -217,11 +217,12 @@ object GuestHooks {
 
         Refl.set(item, "mInfo", info)
         Refl.set(item, "mIntent", ni)
+        val seInfo = try { Refl.get(info.applicationInfo, "seInfo") } catch (t: Throwable) { "?" }
         VLog.w(
             "patch",
             "Stub diganti -> $gp/$gc | apk=${g.apk.exists()} splits=${g.splits.size} " +
                 "so=${g.libDir.list()?.size ?: 0} abi=${g.abi} | uid=${info.applicationInfo.uid} " +
-                "proc=${info.applicationInfo.processName} seInfo=${info.applicationInfo.seInfo}"
+                "proc=${info.applicationInfo.processName} seInfo=$seInfo"
         )
         return true
     }
