@@ -42,7 +42,8 @@ class MainActivity : Activity() {
 
     private fun refresh() {
         container.removeAllViews()
-        container.addView(TextView(this).apply { text = "VSpace - Tahap 2.5"; textSize = 22f })
+        val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (t: Throwable) { "?" }
+        container.addView(TextView(this).apply { text = "VSpace v$ver"; textSize = 22f })
 
         container.addView(btn("Pilih dari app terinstall") {
             startActivityForResult(Intent(this, PickerActivity::class.java), reqInstalled)

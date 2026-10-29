@@ -29,7 +29,8 @@ class VApp : Application() {
             }
             try {
                 GuestHooks.install(this)
-                VLog.w("hook", "terpasang di $proc (SDK ${android.os.Build.VERSION.SDK_INT})")
+                val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (t: Throwable) { "?" }
+                VLog.w("hook", "v$ver terpasang di $proc (SDK ${android.os.Build.VERSION.SDK_INT})")
             } catch (t: Throwable) {
                 VLog.e("hook", t)
             }

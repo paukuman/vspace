@@ -33,7 +33,6 @@ object GuestHooks {
         val slot = proc.substringAfter(":p", "0").toIntOrNull() ?: 0
         try { hookPackageManager(app) } catch (t: Throwable) { VLog.e("hookPM", t) }
         try { hookActivityTaskManager(app, slot) } catch (t: Throwable) { VLog.e("hookATM", t) }
-        try { dumpMiui() } catch (t: Throwable) { VLog.e("miui-dump", t) }
         hookHandler(app)
     }
 

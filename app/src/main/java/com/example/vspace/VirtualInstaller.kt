@@ -39,6 +39,14 @@ class Guest(
             try { Refl.set(n, "splitFlags", IntArray(splits.size)) } catch (t: Throwable) { }
         }
         n.nativeLibraryDir = libDir.path
+        // Field yang biasanya diisi PackageManager saat install (null kalau dibaca dari file APK).
+        // Kode MIUI (ForceDarkHelper) meneruskan processName ke binder -> NPE bila null.
+        n.processName = pkg
+        try { Refl.set(n, "nativeLibraryRootDir", libDir.path) } catch (t: Throwable) { }
+        try {
+            val host = Refl.get(VApp.instance.applicationInfo, "seInfo") as? String
+            Refl.set(n, "seInfo", host ?: "default:targetSdkVersion=28:complete")
+        } catch (t: Throwable) { }
         n.dataDir = dataDir.path
         n.deviceProtectedDataDir = dataDir.path
         // Trik: ContextImpl memakai nama paket PROSES (host) sebagai opPackageName bila ApplicationInfo.uid == SYSTEM_UID
