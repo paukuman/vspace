@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap
 object ServiceHooks {
 
     private val guestCache = ConcurrentHashMap<String, Boolean>()
-    @Volatile private var logged = 0
+    private val seenTags: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     private val SERVICES = listOf(
         "notification" to "android.app.INotificationManager",
@@ -27,7 +27,20 @@ object ServiceHooks {
         "usagestats" to "android.app.usage.IUsageStatsManager",
         "location" to "android.location.ILocationManager",
         "media_session" to "android.media.session.ISessionManager",
-        "account" to "android.accounts.IAccountManager"
+        "account" to "android.accounts.IAccountManager",
+        "shortcut" to "android.content.pm.IShortcutService",
+        "launcherapps" to "android.content.pm.ILauncherApps",
+        "telecom" to "com.android.internal.telecom.ITelecomService",
+        "isub" to "com.android.internal.telephony.ISub",
+        "bluetooth_manager" to "android.bluetooth.IBluetoothManager",
+        "clipboard" to "android.content.IClipboard",
+        "device_policy" to "android.app.admin.IDevicePolicyManager",
+        "role" to "android.app.role.IRoleManager",
+        "carrier_config" to "com.android.internal.telephony.ICarrierConfigLoader",
+        "power" to "android.os.IPowerManager",
+        "user" to "android.os.IUserManager",
+        "storagestats" to "android.app.usage.IStorageStatsManager",
+        "appwidget" to "com.android.internal.appwidget.IAppWidgetService"
     )
 
     fun install(app: Application) {
@@ -60,10 +73,7 @@ object ServiceHooks {
                 !s.contains('/') && s != app.packageName && isGuest(app, s)
             ) {
                 a[i] = app.packageName
-                if (logged < 40) {
-                    logged++
-                    VLog.w("svc", "$tag: $s -> ${app.packageName}")
-                }
+                if (seenTags.add(tag)) VLog.w("svc", "$tag: $s -> ${app.packageName}")
             }
         }
     }
