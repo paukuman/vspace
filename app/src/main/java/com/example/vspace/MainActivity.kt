@@ -61,7 +61,7 @@ class MainActivity : Activity() {
         row.addView(btn("Hapus log") { VLog.clear(); log.text = "Log dihapus" })
         row.addView(btn("Salin log") {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("vspace-log", VLog.read(30000)))
+            cm.setPrimaryClip(ClipData.newPlainText("vspace-log", VLog.read(45000)))
             log.text = "Log disalin ke clipboard (tempel di chat)"
         })
         container.addView(row)

@@ -254,6 +254,10 @@ object GuestHooks {
     /** Meniru ActivityThread.handleBindApplication untuk paket guest (sekali per proses). */
     private fun bootGuest(app: Application, g: Guest, appInfo: ApplicationInfo, item: Any) {
         if (!booted.add(g.pkg)) return
+        // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
+        Diag.describe(app, g.pkg, appInfo, g.libDir)
+        Diag.snapshot("sebelum-boot", g.pkg)
+        Diag.watch(g.pkg)
         val atCls = Class.forName("android.app.ActivityThread")
         val at = atCls.getDeclaredMethod("currentActivityThread").apply { isAccessible = true }.invoke(null)!!
         val compatCls = Class.forName("android.content.res.CompatibilityInfo")
@@ -281,5 +285,6 @@ object GuestHooks {
         val instrumentation = Refl.get(at, "mInstrumentation") as Instrumentation
         instrumentation.callApplicationOnCreate(guestApp)
         VLog.w("boot", "Application.onCreate selesai")
+        Diag.snapshot("setelah-boot", g.pkg)
     }
 }

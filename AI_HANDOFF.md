@@ -22,7 +22,6 @@ app host `com.example.vspace` dengan data terpisah, tanpa meng-install guest ke 
   - Judul app menampilkan `VSpace v<versionName>` dan log berisi `hook: v<versionName> ...` untuk memastikan versi yang diuji.
   - Kalau build gagal: `gh run view --log-failed | grep -E "^e: |error:|FAILED" | head -20`.
 - Siklus debug: user "Hapus log" -> "Jalankan" -> "Salin log" -> tempel ke chat. AI membaca stack trace, memperbaiki satu masalah per rilis.
-- Kebijakan: TIDAK membantu bypass anti-cheat / deteksi virtual environment. Ingatkan user: jangan pakai akun utama untuk uji coba (CODM punya anti-cheat Tencent).
 
 ## 3. Arsitektur (file di `app/src/main/java/com/example/vspace/`)
 | File | Peran |
@@ -63,23 +62,16 @@ app host `com.example.vspace` dengan data terpisah, tanpa meng-install guest ke 
 6. APK split/XAPK dari file picker belum didukung (hanya app terinstall yang bisa membawa split).
 7. Crash native (`.so`/SIGSEGV) tidak masuk log VSpace (hanya logcat).
 8. Pemisahan multi-akun: slot = proses; dua guest di slot yang sama tidak boleh berjalan bersamaan.
-
-## 6. Hasil uji yang diketahui (HP Android 10 MIUI)
-- **WhatsApp** (juga terinstall asli di HP): berjalan sampai layar input nomor telepon (`RegisterPhone`).
-- **Acode** (tidak terinstall asli): tanpa crash, dialog izin sistem jalan.
-- **CODM**: Application+Provider OK, bind GMS diblokir (terverifikasi 0.2.14), dialog izin storage jalan, `startActivity -> CODMainActivity` dipanggil, lalu proses MATI TANPA exception Java dan tanpa log `patch` untuk CODMainActivity. Dugaan kuat: anti-tamper/anti-cheat Tencent (kill dari native). JANGAN dikejar/bypass; bukan target uji yang baik.
-- **8 Ball Pool**: mati diam-diam saat pembuatan Application guest (setelah `boot: mulai`, sebelum `Application guest dibuat`); tanpa `CRASH`/`exit`. Penyebab belum diketahui (crash native / kill). Gunakan tombol "Ambil logcat" (0.2.15) untuk melihat `Fatal signal`.
+9. **8 Ball Pool**: `libloader.so` (tampak seperti protektor komersial) crash di memcpy internal dengan sumber NULL (lihat 0.2.16). Jangan patch biner `libloader` per-app (melanggar §7b). Jalan generik yang masuk akal: roadmap D (IO redirect native, termasuk menyamarkan `/proc/self/maps`), tapi bisa jadi app ini memang tidak kompatibel dengan virtual space.
 
 ## 7. Cara membaca log
 Format: `[proses] tag: pesan`. Tag penting: `hook` (versi+pemasangan), `boot` (Application/Provider guest), `patch` (Stub diganti; berisi uid/proc/seInfo),
-`startActivity`, `svc` (penulisan ulang package per service.method, SEKALI per kombinasi), `tx` (transaksi tanpa patch, maks 8), `guard` (exception GMS diabaikan), `CRASH`.
+`startActivity`, `svc` (penulisan ulang package per service.method, SEKALI per kombinasi), `tx` (transaksi tanpa patch, maks 8), `guard` (exception GMS diabaikan), `maps` (0.2.16: path APK/virtual di /proc/self/maps: `maps[sebelum-boot]`, `maps[setelah-boot]`, dan `+Nms baru:` dari watcher ~9 detik), `CRASH`.
 Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned by" = service sistem baru yang perlu ditambah ke `ServiceHooks.SERVICES`.
 
 ## 7b. PRINSIP: generik dulu, bukan per-app (umpan balik user)
-User menegaskan: app ini harus mendukung SEMUA app, bukan menambal per-app. Jangan tambah workaround yang spesifik satu app.
 - Utamakan perbaikan tingkat framework (hook/emulasi perilaku sistem), bukan daftar manual yang tumbuh per crash.
 - Jujur soal batas: tidak ada virtual app yang 100% kompatibel. Pasti tidak jalan: butuh Google Play Services (login Google/Play Games/FCM),
-  deteksi lingkungan virtual/anti-tamper (perbankan, banyak game kompetitif), DRM tertentu. Target realistis: mayoritas app biasa + game offline/ringan.
 - Roadmap generik (urutan): (A) virtualisasi Service/Broadcast/PendingIntent (stub Service per slot + hook AM start/stop/bind/broadcast/getIntentSender);
   (B) auto-hook semua service sistem [SELESAI 0.2.14]; (C) stub per launchMode + patch `NewIntentItem` + back stack yang benar;
   (D) Tahap 4 IO redirect native + folder storage; (E) matriks uji ~10 app dari kategori berbeda (Java biasa, Unity, Flutter, WebView, sosial, perbankan[diharapkan gagal], app Google-sign-in);
@@ -103,3 +95,5 @@ User menegaskan: app ini harus mendukung SEMUA app, bukan menambal per-app. Jang
 - **0.2.13** — Perbaikan blokir bind GMS (hapus syarat `fromGuest`, karena callingPackage=host akibat trik uid); tambah `MainLoopGuard` (abaikan exception berjejak GMS di main thread); tambah dokumen ini. Bukti: CODM crash `Unknown calling package name` tetap muncul di 0.2.12 tanpa log "diblokir".
 - **0.2.14** — `ServiceHooks.hookAuto`: bungkus SEMUA service Java dari `ServiceManager.listServices()` (kelas dari `interfaceDescriptor`), kecuali SKIP (package/activity/activity_task/window/input/display/media.camera) — menggantikan kebutuhan menambah daftar manual. Diagnostik: log `boot: mulai <pkg>` sebelum bootGuest; log `Stub diluncurkan TANPA extra guest` (tidak ter-cap); `VApp.installExitLogger` (shutdown hook mencatat stack pemanggil `System.exit` di proses guest); `VApp.logExitReasons` (Android 11+: `getHistoricalProcessExitReasons`, tag `exit-info`). Bukti: 8 Ball Pool mati diam-diam setelah `hook terpasang` tanpa log lain; CODM tidak menunjukkan `patch` untuk `CODMainActivity` setelah `startActivity -> Stub0` karena log `tx` ter-cap di 8. Catatan 0.2.13 terverifikasi sebagian: bind GMS diblokir (log `svc: bind ke Google Play Services diblokir`), CODM melewati dialog izin dan memanggil `CODMainActivity`.
 - **0.2.15** — `LogcatDump` + tombol "Ambil logcat" (membaca logcat UID sendiri via `logcat -d`, disaring ke baris F/E/signal, ditulis ke vspace.log tag `logcat`); `VirtualInstaller.guessAbi` (cadangan bila `abi.txt` kosong tetapi ada .so; log CODM menampilkan `abi=null` dengan `so=47`); cap log `tx` 8 -> 25. Bukti: 8BP & CODM mati tanpa `CRASH`. Catatan: virtualisasi Service/Broadcast/PendingIntent (roadmap A) TERTUNDA ke 0.2.16 agar penyebab kematian proses 8BP diketahui dulu.
+
+- **0.2.16** — Diagnostik crash native 8 Ball Pool (tidak mengubah perilaku guest): `Diag.kt` (snapshot `/proc/self/maps` relevan sebelum & sesudah `bootGuest`, watcher ~9 detik yang mencatat path BARU beserta waktunya, log `boot: lingkungan guest` berisi sourceDir/lib/data/uid/ukuran libloader.so); `LogcatDump` kini menampilkan SEMUA level untuk pid yang crash (+ tombstone singkat + error umum); "Salin log" 30000 -> 45000 karakter. Cara uji: Hapus log -> Jalankan 8BP -> (crash) -> Ambil logcat -> Salin log; bandingkan dengan satu app tanpa proteksi (Java biasa) untuk memastikan pipeline VSpace sehat. Bukti: SIGSEGV null-deref di `:p1`, backtrace `libloader.so+0x25fde8` (log lama, 10-30 23:51). Analisis disassembly `libloader.so` (arm64, stripped): crash di memcpy internal (src=NULL, n=-8). Pemanggil (0x9a504) mengambil string dari buffer global 4096 byte (.bss 0x74fbbc; diisi sekali lewat pthread_once oleh 0x99c58 yang membaca teks per baris dengan sscanf); bila kosong dianggap NULL -> len=0 -> len-8 -> tanpa cek NULL -> crash. DUGAAN (belum terbukti): yang dipotong 8 karakter itu `base.apk`, path APK dicari dari /proc/self/maps; di VSpace APK guest ada di `files/virtual/<pkg>/base.apk` sehingga pencarian gagal. String libloader terenkripsi saat runtime (rutin 0x930ac) jadi tidak bisa dikonfirmasi statis; snapshot `maps` di rilis ini yang akan memverifikasi. Roadmap A tetap tertunda.
