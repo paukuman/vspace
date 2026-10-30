@@ -65,6 +65,16 @@ class MainActivity : Activity() {
             log.text = "Log disalin ke clipboard (tempel di chat)"
         })
         container.addView(row)
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row2.addView(btn("Ambil logcat") {
+            log.text = "Mengambil logcat..."
+            Thread {
+                val t = LogcatDump.capture()
+                VLog.w("logcat", "\n" + t)
+                runOnUiThread { log.text = t.takeLast(6000) }
+            }.start()
+        })
+        container.addView(row2)
 
         log = TextView(this).apply { setPadding(0, 16, 0, 16); setTextIsSelectable(true) }
         container.addView(log)

@@ -225,10 +225,16 @@ object VirtualInstaller {
             splits = splits,
             libDir = File(dir, "lib"),
             dataDir = File(dir, "data").apply { mkdirs() },
-            abi = abi,
+            abi = abi ?: guessAbi(dir),
             activities = info.activities?.map { it.name } ?: emptyList()
         )
     }
+
+    /** abi.txt kosong/hilang tapi ada .so terekstrak: pakai ABI pertama sesuai bitness proses. */
+    private fun guessAbi(dir: File): String? =
+        if (File(dir, "lib").list()?.isNotEmpty() == true)
+            (if (Process.is64Bit()) Build.SUPPORTED_64_BIT_ABIS else Build.SUPPORTED_32_BIT_ABIS).firstOrNull()
+        else null
 
     /** Cari Activity MAIN/LAUNCHER dengan membaca AndroidManifest biner lewat AssetManager (hidden API). */
     fun launcher(g: Guest): String? {

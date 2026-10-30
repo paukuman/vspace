@@ -204,7 +204,7 @@ object GuestHooks {
             }
             c = c.superclass
         }
-        if (!patched && dumped < 8) {
+        if (!patched && dumped < 25) {
             dumped++
             VLog.w("tx", "transaksi tanpa patch, item=$seen")
         }

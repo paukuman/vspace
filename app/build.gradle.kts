@@ -13,8 +13,8 @@ android {
         // Target pengguna tetap Android 10-16.
         minSdk = 28
         targetSdk = 28
-        versionCode = 16
-        versionName = "0.2.14"
+        versionCode = 17
+        versionName = "0.2.15"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
