@@ -63,22 +63,14 @@ app host `com.example.vspace` dengan data terpisah, tanpa meng-install guest ke 
 7. Crash native (`.so`/SIGSEGV) tidak masuk log VSpace (hanya logcat).
 8. Pemisahan multi-akun: slot = proses; dua guest di slot yang sama tidak boleh berjalan bersamaan.
 
-## 6. Hasil uji yang diketahui (HP Android 10 MIUI)
-- **WhatsApp** (juga terinstall asli di HP): berjalan sampai layar input nomor telepon (`RegisterPhone`).
-- **Acode** (tidak terinstall asli): tanpa crash, dialog izin sistem jalan.
-- **CODM**: Application+Provider OK, bind GMS diblokir (terverifikasi 0.2.14), dialog izin storage jalan, `startActivity -> CODMainActivity` dipanggil, lalu proses MATI TANPA exception Java dan tanpa log `patch` untuk CODMainActivity. Dugaan kuat: anti-tamper/anti-cheat Tencent (kill dari native). JANGAN dikejar/bypass; bukan target uji yang baik.
-- **8 Ball Pool**: mati diam-diam saat pembuatan Application guest (setelah `boot: mulai`, sebelum `Application guest dibuat`); tanpa `CRASH`/`exit`. Penyebab belum diketahui (crash native / kill). Gunakan tombol "Ambil logcat" (0.2.15) untuk melihat `Fatal signal`.
-
 ## 7. Cara membaca log
 Format: `[proses] tag: pesan`. Tag penting: `hook` (versi+pemasangan), `boot` (Application/Provider guest), `patch` (Stub diganti; berisi uid/proc/seInfo),
 `startActivity`, `svc` (penulisan ulang package per service.method, SEKALI per kombinasi), `tx` (transaksi tanpa patch, maks 8), `guard` (exception GMS diabaikan), `CRASH`.
 Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned by" = service sistem baru yang perlu ditambah ke `ServiceHooks.SERVICES`.
 
 ## 7b. PRINSIP: generik dulu, bukan per-app (umpan balik user)
-User menegaskan: app ini harus mendukung SEMUA app, bukan menambal per-app. Jangan tambah workaround yang spesifik satu app.
 - Utamakan perbaikan tingkat framework (hook/emulasi perilaku sistem), bukan daftar manual yang tumbuh per crash.
 - Jujur soal batas: tidak ada virtual app yang 100% kompatibel. Pasti tidak jalan: butuh Google Play Services (login Google/Play Games/FCM),
-  deteksi lingkungan virtual/anti-tamper (perbankan, banyak game kompetitif), DRM tertentu. Target realistis: mayoritas app biasa + game offline/ringan.
 - Roadmap generik (urutan): (A) virtualisasi Service/Broadcast/PendingIntent (stub Service per slot + hook AM start/stop/bind/broadcast/getIntentSender);
   (B) auto-hook semua service sistem [SELESAI 0.2.14]; (C) stub per launchMode + patch `NewIntentItem` + back stack yang benar;
   (D) Tahap 4 IO redirect native + folder storage; (E) matriks uji ~10 app dari kategori berbeda (Java biasa, Unity, Flutter, WebView, sosial, perbankan[diharapkan gagal], app Google-sign-in);
