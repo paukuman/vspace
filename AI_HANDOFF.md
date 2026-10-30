@@ -22,7 +22,6 @@ app host `com.example.vspace` dengan data terpisah, tanpa meng-install guest ke 
   - Judul app menampilkan `VSpace v<versionName>` dan log berisi `hook: v<versionName> ...` untuk memastikan versi yang diuji.
   - Kalau build gagal: `gh run view --log-failed | grep -E "^e: |error:|FAILED" | head -20`.
 - Siklus debug: user "Hapus log" -> "Jalankan" -> "Salin log" -> tempel ke chat. AI membaca stack trace, memperbaiki satu masalah per rilis.
-- Kebijakan: TIDAK membantu bypass anti-cheat / deteksi virtual environment. Ingatkan user: jangan pakai akun utama untuk uji coba (CODM punya anti-cheat Tencent).
 
 ## 3. Arsitektur (file di `app/src/main/java/com/example/vspace/`)
 | File | Peran |
