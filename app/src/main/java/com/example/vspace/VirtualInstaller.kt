@@ -125,7 +125,46 @@ object VirtualInstaller {
 
     private fun root(ctx: Context) = File(ctx.filesDir, "virtual").apply { mkdirs() }
 
-    fun exists(ctx: Context, pkg: String): Boolean = File(File(root(ctx), pkg), "base.apk").exists()
+    /**
+     * 0.2.19: folder guest meniru pola instalasi Android: <paket>-<token>/base.apk, split LANGSUNG di folder yang sama.
+     * Bukti (emulasi libloader.so 8 Ball Pool): ia memindai /proc/<pid>/maps mencari baris yang berawalan /data atau /mnt,
+     * berakhiran base.apk, dan mengandung "<paket>-"; lalu membuka <folder base.apk>/split_config.arm64_v8a.apk.
+     */
+    private const val DIR_SUFFIX = "-1"
+
+    private fun newDir(ctx: Context, pkg: String) = File(root(ctx), pkg + DIR_SUFFIX)
+    private fun legacyDir(ctx: Context, pkg: String) = File(root(ctx), pkg)
+
+    /** Folder yang dipakai saat ini (baru bila ada, kalau tidak folder lama). Tidak pernah memindahkan apa pun. */
+    private fun locate(ctx: Context, pkg: String): File {
+        val n = newDir(ctx, pkg)
+        val o = legacyDir(ctx, pkg)
+        return if (!File(n, "base.apk").exists() && File(o, "base.apk").exists()) o else n
+    }
+
+    /** Ada proses slot guest (<host>:pN) yang hidup? Bila ya, jangan menggeser folder apa pun. */
+    private fun slotAlive(ctx: Context): Boolean = try {
+        val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        am.runningAppProcesses?.any { it.processName.startsWith(ctx.packageName + ":p") } == true
+    } catch (t: Throwable) {
+        true
+    }
+
+    /** Pindahkan folder lama (<paket>) ke <paket>-1 dan naikkan split/ satu tingkat. Mengembalikan folder yang dipakai. */
+    private fun migrate(ctx: Context, pkg: String): File {
+        val n = newDir(ctx, pkg)
+        val o = legacyDir(ctx, pkg)
+        if (n.exists() || !o.isDirectory) return n
+        if (slotAlive(ctx)) return o
+        if (!o.renameTo(n)) return o
+        val sd = File(n, "splits")
+        sd.listFiles()?.forEach { f -> f.renameTo(File(n, f.name)) }
+        sd.delete()
+        VLog.w("install", "migrasi folder guest $pkg -> ${n.name}")
+        return n
+    }
+
+    fun exists(ctx: Context, pkg: String): Boolean = File(locate(ctx, pkg), "base.apk").exists()
 
     /** Dari file APK tunggal (file picker). */
     fun install(ctx: Context, uri: Uri): Guest {
@@ -152,16 +191,17 @@ object VirtualInstaller {
         val pkg = info.packageName
         if (pkg == ctx.packageName) { baseTmp.delete(); error("Tidak bisa meng-clone VSpace sendiri") }
 
-        val dir = File(root(ctx), pkg).apply { mkdirs() }
+        val dir = migrate(ctx, pkg).apply { mkdirs() }
         val apk = File(dir, "base.apk")
         if (apk.exists()) { apk.setWritable(true); apk.delete() }
         baseTmp.copyTo(apk, overwrite = true)
         baseTmp.delete()
 
-        val splitDir = File(dir, "splits")
-        splitDir.listFiles()?.forEach { it.setWritable(true); it.delete() }
-        splitDir.mkdirs()
-        val splits = splitSrc.map { s -> File(splitDir, s.name).also { s.copyTo(it, overwrite = true) } }
+        // split langsung di folder yang sama dengan base.apk (pola instalasi Android); buang sisa layout lama (splits/)
+        dir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") && it.name != "base.apk" }
+            ?.forEach { it.setWritable(true); it.delete() }
+        File(dir, "splits").let { sd -> sd.listFiles()?.forEach { it.setWritable(true); it.delete() }; sd.delete() }
+        val splits = splitSrc.map { s -> File(dir, s.name).also { s.copyTo(it, overwrite = true) } }
         val allApks = listOf(apk) + splits
 
         // Native lib dari base + semua split, sesuai bitness proses host
@@ -197,12 +237,15 @@ object VirtualInstaller {
         return describe(ctx, dir, true)!!
     }
 
-    fun list(ctx: Context): List<Guest> =
-        root(ctx).listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }
+    fun list(ctx: Context): List<Guest> {
+        // nama paket Android tidak boleh mengandung '-', jadi folder tanpa '-' adalah layout lama
+        root(ctx).listFiles()?.filter { it.isDirectory && !it.name.contains('-') }?.forEach { migrate(ctx, it.name) }
+        return root(ctx).listFiles()?.filter { it.isDirectory }?.sortedBy { it.name }
             ?.mapNotNull { describe(ctx, it, true) } ?: emptyList()
+    }
 
     fun get(ctx: Context, pkg: String, withLabel: Boolean = true): Guest? =
-        describe(ctx, File(root(ctx), pkg), withLabel)
+        describe(ctx, locate(ctx, pkg), withLabel)
 
     fun delete(ctx: Context, g: Guest) {
         g.apk.parentFile?.deleteRecursively()
@@ -223,8 +266,8 @@ object VirtualInstaller {
             } catch (t: Throwable) { }
         }
         val abi = File(dir, "abi.txt").takeIf { it.exists() }?.readText()?.ifEmpty { null }
-        val splits = File(dir, "splits").listFiles()?.filter { it.name.endsWith(".apk") }?.sortedBy { it.name }
-            ?: emptyList()
+        val splits = ((dir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") && it.name != "base.apk" } ?: emptyList()) +
+            (File(dir, "splits").listFiles()?.filter { it.name.endsWith(".apk") } ?: emptyList())).sortedBy { it.name }
         return Guest(
             pkg = info.packageName,
             label = label,
