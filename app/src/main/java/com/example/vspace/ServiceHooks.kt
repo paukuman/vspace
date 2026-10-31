@@ -101,6 +101,10 @@ object ServiceHooks {
             ) {
                 a[i] = app.packageName
                 if (seenTags.add(tag)) VLog.w("svc", "$tag: $s -> ${app.packageName}")
+            } else if (s is android.content.ComponentName && s.packageName != app.packageName && isGuest(app, s.packageName)) {
+                // 0.2.18: argumen ComponentName (mis. appwidget.getAppWidgetIds) dicek system_server terhadap uid pemanggil
+                a[i] = android.content.ComponentName(app.packageName, s.className)
+                if (seenTags.add(tag)) VLog.w("svc", "$tag: ComponentName ${s.packageName} -> ${app.packageName}")
             }
         }
     }
