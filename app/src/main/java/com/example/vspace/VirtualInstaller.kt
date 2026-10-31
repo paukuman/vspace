@@ -26,24 +26,31 @@ class Guest(
     val abi: String?,
     val activities: List<String>
 ) {
+    /**
+     * 0.2.17: path kanonik (symlink /data/user/0 -> /data/data diselesaikan). /proc/self/maps selalu menampilkan
+     * /data/data/..., sedangkan filesDir memberi /data/user/0/...; kode native yang membandingkan string path
+     * dari Java dengan baris maps tidak akan pernah cocok.
+     */
+    private fun canon(f: File): String = try { f.canonicalPath } catch (t: Throwable) { f.path }
+
     /** ApplicationInfo guest yang diarahkan ke file & folder data di dalam host. */
     fun patchApp(ai: ApplicationInfo): ApplicationInfo {
         val n = ApplicationInfo(ai)
-        n.sourceDir = apk.path
-        n.publicSourceDir = apk.path
+        n.sourceDir = canon(apk)
+        n.publicSourceDir = canon(apk)
         if (splits.isNotEmpty()) {
-            val arr = splits.map { it.path }.toTypedArray()
+            val arr = splits.map { canon(it) }.toTypedArray()
             n.splitSourceDirs = arr
             n.splitPublicSourceDirs = arr
             // Android 10 (LoadedApk.setupJitProfileSupport) membaca splitNames[i-1]; tidak boleh null
             n.splitNames = splits.map { it.name.removeSuffix(".apk").removePrefix("split_") }.toTypedArray()
             try { Refl.set(n, "splitFlags", IntArray(splits.size)) } catch (t: Throwable) { }
         }
-        n.nativeLibraryDir = libDir.path
+        n.nativeLibraryDir = canon(libDir)
         // Field yang biasanya diisi PackageManager saat install (null kalau dibaca dari file APK).
         // Kode MIUI (ForceDarkHelper) meneruskan processName ke binder -> NPE bila null.
         n.processName = pkg
-        try { Refl.set(n, "nativeLibraryRootDir", libDir.path) } catch (t: Throwable) { }
+        try { Refl.set(n, "nativeLibraryRootDir", canon(libDir)) } catch (t: Throwable) { }
         try {
             val host = Refl.get(VApp.instance.applicationInfo, "seInfo") as? String
             Refl.set(n, "seInfo", host ?: "default:targetSdkVersion=28:complete")

@@ -34,12 +34,13 @@ object LogcatDump {
                 mine.takeLast(80).forEach { out.append(it.take(180)).append('\n') }
             }
             val err = main.filter { l ->
-                l.contains(" F/") || l.contains(" E/") || l.contains("Fatal signal") ||
+                !l.substringAfter("): ", "").trimStart().startsWith("at ") &&
+                (l.contains(" F/") || l.contains(" E/") || l.contains("Fatal signal") ||
                     l.contains("SIGSEGV") || l.contains("abort", true) ||
-                    l.contains("killed", true) || l.contains("signal ", true)
+                    l.contains("killed", true) || l.contains("signal ", true))
             }
             out.append("== logcat main, error umum (${err.size}/${main.size} baris)\n")
-            err.takeLast(25).forEach { out.append(it.take(200)).append('\n') }
+            err.takeLast(40).forEach { out.append(it.take(200)).append('\n') }
         } catch (t: Throwable) {
             out.append("logcat main gagal: ${t.message}\n")
         }

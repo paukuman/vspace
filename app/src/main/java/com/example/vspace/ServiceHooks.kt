@@ -15,6 +15,7 @@ object ServiceHooks {
 
     private val guestCache = ConcurrentHashMap<String, Boolean>()
     private val seenTags: MutableSet<String> = ConcurrentHashMap.newKeySet()
+    private val errSeen: MutableSet<String> = ConcurrentHashMap.newKeySet()
     private val hooked = HashSet<String>()
 
     // Service yang sengaja TIDAK dibungkus otomatis (punya hook sendiri / berisiko performa)
@@ -116,7 +117,11 @@ object ServiceHooks {
                 rewrite(app, "$name.${m.name}", args)
                 if (args == null) m.invoke(real) else m.invoke(real, *args)
             } catch (e: InvocationTargetException) {
-                throw e.targetException
+                val te = e.targetException
+                // 0.2.17: catat exception asli dari service sistem (sekali per service.method:tipe, maks 40)
+                val key = "$name.${m.name}:${te.javaClass.simpleName}"
+                if (errSeen.size < 40 && errSeen.add(key)) VLog.w("svc-err", "$name.${m.name} -> ${te.javaClass.name}: ${te.message}")
+                throw te
             }
         }
         val binderProxy = Proxy.newProxyInstance(app.classLoader, arrayOf(IBinder::class.java)) { _, m, args ->
