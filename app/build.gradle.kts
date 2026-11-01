@@ -14,8 +14,8 @@ android {
         // Target pengguna tetap Android 10-16.
         minSdk = 28
         targetSdk = 28
-        versionCode = 40
-        versionName = "0.2.38f"
+        versionCode = 41
+        versionName = "0.2.38g"
         ndk { abiFilters += listOf("arm64-v8a") }
         externalNativeBuild {
             cmake {
