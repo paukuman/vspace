@@ -51,7 +51,7 @@ class GuestInstrumentation(
     override fun callActivityOnRestoreInstanceState(activity: Activity, savedInstanceState: Bundle?) {
         patch(activity); real.callActivityOnRestoreInstanceState(activity, savedInstanceState)
     }
-    override fun callActivityOnRestoreInstanceState(activity: Activity, savedInstanceState: Bundle?, persistentState: PersistableBundle?) {
+    override fun callActivityOnRestoreInstanceState(activity: Activity, savedInstanceState: Bundle, persistentState: PersistableBundle) {
         patch(activity); real.callActivityOnRestoreInstanceState(activity, savedInstanceState, persistentState)
     }
     override fun callActivityOnNewIntent(activity: Activity, intent: Intent) {
