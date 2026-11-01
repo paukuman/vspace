@@ -48,21 +48,26 @@ object AntiVirtual {
             VLog.bootOnly("av", "sProcessName: ${t.javaClass.simpleName}: ${t.message}")
         }
 
-        // Path B: ActivityThread.currentProcessName() membaca instance field mProcessName.
-        // Ini jalur yang dipakai Application.getProcessName() (API 28+) dan
-        // ActivityThread.currentProcessName() statis. Di A10 inilah satu-satunya yang ada.
+        // Path B: ActivityThread.getProcessName() (dipakai Application.getProcessName())
+        // membaca field `mBoundApplication.processName` (AppBindData), BUKAN `mProcessName`
+        // langsung. Log 0.2.35 membuktikan field `mProcessName` tidak ada di MIUI 12 A10.
         try {
             val at = Class.forName("android.app.ActivityThread")
             val cur = at.getDeclaredMethod("currentActivityThread").apply { isAccessible = true }.invoke(null)
             if (cur != null) {
-                val f = at.getDeclaredField("mProcessName").apply { isAccessible = true }
-                val old = try { f.get(cur) } catch (t: Throwable) { "?" }
-                f.set(cur, pkg)
-                VLog.bootOnly("av", "ActivityThread.mProcessName $old -> $pkg")
-                done = true
+                val boundApp = try { Refl.get(cur, "mBoundApplication") } catch (t: Throwable) { null }
+                if (boundApp != null) {
+                    val f = boundApp.javaClass.getDeclaredField("processName").apply { isAccessible = true }
+                    val old = try { f.get(boundApp) } catch (t: Throwable) { "?" }
+                    f.set(boundApp, pkg)
+                    VLog.bootOnly("av", "AppBindData.processName $old -> $pkg")
+                    done = true
+                } else {
+                    VLog.bootOnly("av", "mBoundApplication null (fallback)")
+                }
             }
         } catch (t: Throwable) {
-            VLog.bootOnly("av", "ActivityThread.mProcessName gagal: ${t.javaClass.simpleName}: ${t.message}")
+            VLog.bootOnly("av", "AppBindData.processName gagal: ${t.javaClass.simpleName}: ${t.message}")
         }
 
         // Path C: Application.setProcessName(String) (static, API 31+).

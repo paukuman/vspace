@@ -369,8 +369,8 @@ object GuestHooks {
         // 0.2.31: skip-libs — baca files/skip_libs.txt (satu nama .so per baris), rename
         // <lib>.so menjadi <lib>.so.disabled supaya dlopen gagal cepat ("file not found")
         // alih-alih hang di JNI_OnLoad. User bisa restore manual kalau perlu.
-        // 0.2.35: AUTO_SKIP dikosongkan (lihat catatan di AUTO_SKIP). applySkipLibs
-        // tetap dipakai untuk skip manual via files/skip_libs.txt.
+        // 0.2.36: AUTO_SKIP diaktifkan lagi (libanort.so untuk CODM; lihat catatan di AUTO_SKIP).
+        try { autoSkipLibs(app, g.pkg, g.libDir) } catch (t: Throwable) { VLog.bootE("autoskip", t) }
         try { applySkipLibs(app, g.pkg, g.libDir) } catch (t: Throwable) { VLog.bootE("skip", t) }
         // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
         Diag.describe(app, g.pkg, appInfo, g.libDir)
@@ -441,12 +441,24 @@ object GuestHooks {
      * dipertahankan untuk restore manual oleh user.
      */
     /**
-     * 0.2.35: AUTO_SKIP sengaja DIKOSONGKAN. Log 0.2.34 membuktikan skip `libtgpa*` justru
-     * memicu `UnsatisfiedLinkError: libtgpa.so` di `CODMainActivity.<clinit>`
-     * (CODM memanggil System.loadLibrary("tgpa") secara eksplisit). Untuk skip manual,
-     * user bisa isi files/skip_libs.txt — itu tetap diproses oleh applySkipLibs().
+     * 0.2.36: AUTO_SKIP diaktifkan lagi KHUSUS untuk lib anti-cheat yang ter-bukti
+     * menyebabkan hang (bukan untuk lib fungsional).
+     *
+     * Bukti dari tombstone v0.2.35 (SIGABRT CODM): stack main thread saat hang adalah
+     *   libc.sem_wait -> libanort.so -> libunity.so
+     * → libanort.so (ANORT, anti-cheat Tencent) men-deadlock di sem_wait saat dipanggil
+     *   dari libunity.so. Skip `libanort.so` membuat dlopen gagal cepat → Unity fallback
+     *   tanpa anti-cheat, game tetap jalan (banyak virtual app melakukan ini).
+     *
+     * JANGAN skip `libtgpa*` — 0.2.34 membuktikan itu memicu UnsatisfiedLinkError
+     * di CODMainActivity.<clinit>.
      */
-    private val AUTO_SKIP: List<Pair<(String) -> Boolean, List<String>>> = emptyList()
+    private val AUTO_SKIP: List<Pair<(String) -> Boolean, List<String>>> = listOf(
+        ({ p: String ->
+            p.startsWith("com.activision") || p.contains("callofduty") ||
+                p == "com.garena.game.codm" || p.startsWith("com.tencent.tmgp.cod")
+        }) to listOf("libanort.so")
+    )
 
     private fun autoSkipLibs(app: Application, pkg: String, libDir: File) {
         val names = AUTO_SKIP.filter { (match, _) -> match(pkg) }.flatMap { it.second }.distinct()
