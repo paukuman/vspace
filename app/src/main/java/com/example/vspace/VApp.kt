@@ -13,16 +13,24 @@ class VApp : Application() {
         @Volatile var nativeReady = false
         @JvmStatic external fun nativeInit()
         @JvmStatic external fun nativeSetGuestPkg(pkg: String)
-        init {
-            // 0.2.38: hook /proc/self/maps + readlink /proc/self/exe + dlopen logger.
-            // Dimuat di semua proses; di proses main filter /proc hanya no-op karena
-            // g_guest_pkg kosong sampai nativeSetGuestPkg dipanggil saat bootGuest.
+        // 0.2.38f: pemuatan library native DIPINDAH dari init{} companion ke
+        // sini, dan HANYA dipanggil di proses slot ":p*". Sebelumnya init{}
+        // jalan di SEMUA proses termasuk proses UI main, dan hook
+        // open/openat/fopen/dlopen di main merusak render surface (bukti user:
+        // setelah hapus data pun UI tetap blank; screenshot putih, UI tree ada,
+        // tanpa crash/tombstone). Di 0.2.37 tanpa library ini UI render normal.
+        @Volatile private var nativeLoadTried = false
+        @Synchronized
+        fun ensureNativeLoaded() {
+            if (nativeLoadTried) return
+            nativeLoadTried = true
             try {
                 System.loadLibrary("vspace_hooks")
                 nativeInit()
                 nativeReady = true
                 android.util.Log.i("VSpace", "vspace_hooks loaded & init ok")
             } catch (t: Throwable) {
+                nativeReady = false
                 android.util.Log.e("VSpace", "vspace_hooks gagal load", t)
             }
         }
@@ -45,6 +53,8 @@ class VApp : Application() {
         // Hook hanya dipasang di proses slot (":p0", ":p1", ":p2"), bukan di proses UI.
         val proc = try { Application.getProcessName() } catch (t: Throwable) { "" }
         if (proc.contains(":p")) {
+            // 0.2.38f: native hook hanya di proses guest, bukan di proses UI.
+            ensureNativeLoaded()
             MainLoopGuard.install()
             installExitLogger()
             // Catat crash di proses guest ke file log (crash native/.so tidak tertangkap di sini)
