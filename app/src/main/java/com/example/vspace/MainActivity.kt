@@ -61,8 +61,15 @@ class MainActivity : Activity() {
         row.addView(btn("Hapus log") { VLog.clear(); log.text = "Log dihapus" })
         row.addView(btn("Salin log") {
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("vspace-log", VLog.read(45000)))
-            log.text = "Log disalin ke clipboard (tempel di chat)"
+            val s = VLog.readAll()
+            cm.setPrimaryClip(ClipData.newPlainText("vspace-log", s))
+            log.text = "Log disalin (vspace.log + logcat.log, ${s.length} char). Tempel di chat."
+        })
+        row.addView(btn("Salin logcat") {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val s = LogcatDump.readFile()
+            cm.setPrimaryClip(ClipData.newPlainText("vspace-logcat", s))
+            log.text = "Logcat disalin (${s.length} char)"
         })
         container.addView(row)
         val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -70,7 +77,6 @@ class MainActivity : Activity() {
             log.text = "Mengambil logcat..."
             Thread {
                 val t = LogcatDump.capture()
-                VLog.w("logcat", "\n" + t)
                 runOnUiThread { log.text = t.takeLast(6000) }
             }.start()
         })

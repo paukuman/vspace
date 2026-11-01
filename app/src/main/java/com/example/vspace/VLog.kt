@@ -23,5 +23,12 @@ object VLog {
         file().readText().takeLast(max).ifEmpty { "(log kosong)" }
     } catch (t: Throwable) { "(log kosong)" }
 
-    fun clear() { try { file().delete() } catch (t: Throwable) { } }
+    /** 0.2.20: gabungan untuk tombol "Salin log" — vspace.log utuh (hook/boot/patch/svc) + logcat.log (crash/events). */
+    fun readAll(vspaceMax: Int = 60000, logcatMax: Int = 80000): String {
+        val v = try { file().readText().takeLast(vspaceMax) } catch (t: Throwable) { "(vspace.log kosong)" }
+        val l = try { LogcatDump.readFile(logcatMax) } catch (t: Throwable) { "(logcat.log kosong)" }
+        return "$v\n\n=== logcat.log ===\n$l"
+    }
+
+    fun clear() { try { file().delete() } catch (t: Throwable) { }; LogcatDump.clear() }
 }

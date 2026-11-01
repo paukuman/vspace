@@ -1,8 +1,17 @@
 package com.example.vspace
 
+import java.io.File
+
 /**
- * Ambil logcat milik UID sendiri (guest berjalan dengan UID host, jadi crash native/kill terlihat).
- * 0.2.16: selain ringkasan error, tampilkan SEMUA baris (semua level) milik pid yang crash.
+ * Ambil logcat milik UID sendiri (guest berjalan dengan UID host, jadi crash/kill terlihat).
+ *
+ * 0.2.20:
+ *  - Hasil disimpan ke file TERPISAH `filesDir/logcat.log` (tidak lagi dicampur ke vspace.log). Tombol "Salin log"
+ *    menggabungkan vspace.log (utuh, dari paling awal) + logcat.log (utuh), jadi hook/boot/patch tidak terpotong.
+ *  - Tambah buffer `events` (am_proc_died / am_kill / am_proc_start): melihat SIAPA yang membunuh proses guest
+ *    ketika mati diam-diam tanpa Fatal signal (mis. CODM: aplikasi keluar sendiri ~3 detik setelah start).
+ *  - Error main dikelompokkan per-pid dan di-dedupe (baris Firebase/GMS dari SDK guest tidak membanjiri).
+ *  - Bagian crash tetap di PALING BAWAH supaya tidak terpotong saat disalin.
  */
 object LogcatDump {
     private fun read(cmd: List<String>): List<String> {
@@ -12,50 +21,80 @@ object LogcatDump {
         return lines
     }
 
+    fun file() = File(VApp.instance.filesDir, "logcat.log")
+
+    fun readFile(max: Int = 120000): String = try {
+        file().readText().takeLast(max).ifEmpty { "(logcat kosong, tekan Ambil logcat dulu)" }
+    } catch (t: Throwable) { "(logcat kosong)" }
+
+    fun clear() { try { file().delete() } catch (t: Throwable) { } }
+
     fun capture(): String {
         val out = StringBuilder()
+        val ver = try { VApp.instance.packageManager.getPackageInfo(VApp.instance.packageName, 0).versionName } catch (t: Throwable) { "?" }
+        val t0 = System.currentTimeMillis()
+        val hhmmss = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(t0))
+        out.append("== VSpace v$ver, capture at $hhmmss\n")
+
+        // events: proses start/died/kill (maks 100 baris, hanya yang relevan)
+        try {
+            val ev = read(listOf("logcat", "-b", "events", "-d", "-v", "time", "-t", "600"))
+            val keep = ev.filter {
+                it.contains("am_proc_died") || it.contains("am_kill") || it.contains("am_proc_start") ||
+                    it.contains("am_crash") || it.contains("am_anr")
+            }
+            out.append("== events (proc lifecycle: ${keep.size}/${ev.size} baris)\n")
+            keep.takeLast(80).forEach { out.append(it.take(240)).append('\n') }
+        } catch (t: Throwable) {
+            out.append("events gagal: ${t.message}\n")
+        }
+
+        // main: hanya error/fatal, dedupe per pid
+        try {
+            val main = read(listOf("logcat", "-b", "main", "-d", "-v", "time", "-t", "8000"))
+            val rePid = Regex("\\(\\s*(\\d+)\\):")
+            val perPid = LinkedHashMap<String, MutableList<String>>()
+            for (l in main) {
+                val hasErr = l.contains(" E/") || l.contains(" F/") || l.contains("Fatal signal") ||
+                    l.contains("SIGSEGV") || l.contains("SIGABRT")
+                if (!hasErr) continue
+                val body = l.substringAfter("): ", "")
+                if (body.trimStart().startsWith("at ")) continue
+                val pid = rePid.find(l)?.groupValues?.get(1) ?: "?"
+                perPid.getOrPut(pid) { ArrayList() }.add(l)
+            }
+            out.append("== main errors (${perPid.size} pid)\n")
+            for ((pid, list) in perPid) {
+                // dedupe dengan kunci tag+potongan pesan
+                val seen = HashSet<String>()
+                val uniq = list.filter { l ->
+                    val tag = l.substringAfter("): ", "").trimStart().takeWhile { it != ':' }
+                    val body = l.substringAfter("): ", "").take(60)
+                    seen.add("$tag|$body")
+                }
+                out.append("-- pid $pid (${list.size} baris, ${uniq.size} unik)\n")
+                uniq.takeLast(30).forEach { out.append(it.take(220)).append('\n') }
+            }
+        } catch (t: Throwable) {
+            out.append("main gagal: ${t.message}\n")
+        }
+
+        // crash: ambil ekor, taruh PALING BAWAH (0.2.18 rule)
         var crash: List<String> = emptyList()
-        try {
-            crash = read(listOf("logcat", "-b", "crash", "-d", "-v", "time", "-t", "150"))
-        } catch (t: Throwable) {
-            out.append("logcat crash gagal: ${t.message}\n")
-        }
-
-        try {
-            val main = read(listOf("logcat", "-b", "main", "-d", "-v", "time", "-t", "6000"))
-            val fatalIdx = crash.indexOfLast { it.contains("Fatal signal") }
-            val pid = crash.getOrNull(fatalIdx)
-                ?.let { Regex("pid (\\d+)").find(it)?.groupValues?.get(1) }
-            val err = main.filter { l ->
-                !l.substringAfter("): ", "").trimStart().startsWith("at ") &&
-                (l.contains(" F/") || l.contains(" E/") || l.contains("Fatal signal") ||
-                    l.contains("SIGSEGV") || l.contains("abort", true) ||
-                    l.contains("killed", true) || l.contains("signal ", true))
-            }
-            out.append("== logcat main, error umum (${err.size}/${main.size} baris)\n")
-            err.takeLast(40).forEach { out.append(it.take(200)).append('\n') }
-            if (pid != null) {
-                val re = Regex("\\(\\s*" + pid + "\\):")
-                val mine = main.filter { re.containsMatchIn(it) }
-                out.append("== logcat main, pid $pid, semua level (${mine.size}/${main.size} baris)\n")
-                mine.takeLast(80).forEach { out.append(it.take(180)).append('\n') }
-            }
-        } catch (t: Throwable) {
-            out.append("logcat main gagal: ${t.message}\n")
-        }
-
-        // 0.2.18: bagian crash ditaruh PALING BAWAH supaya tidak terpotong saat log disalin.
-        out.append("== logcat crash (${crash.size} baris)\n")
-        crash.takeLast(40).forEach { out.append(it.take(200)).append('\n') }
-        val fatalIdx = crash.indexOfLast { it.contains("Fatal signal") }
-        if (fatalIdx >= 0) {
+        try { crash = read(listOf("logcat", "-b", "crash", "-d", "-v", "time", "-t", "300")) } catch (t: Throwable) {}
+        out.append("== crash buffer (${crash.size} baris)\n")
+        crash.takeLast(80).forEach { out.append(it.take(220)).append('\n') }
+        val fi = crash.indexOfLast { it.contains("Fatal signal") }
+        if (fi >= 0) {
             out.append("== RINGKAS CRASH NATIVE\n")
-            out.append(crash[fatalIdx].take(220)).append('\n')
+            out.append(crash[fi].take(240)).append('\n')
             val frames = Regex("#\\d+ pc ")
-            crash.drop(fatalIdx).filter { frames.containsMatchIn(it) }.take(10).forEach {
-                out.append(it.substringAfter("): ", it).trim().take(220)).append('\n')
+            crash.drop(fi).filter { frames.containsMatchIn(it) }.take(10).forEach {
+                out.append(it.substringAfter("): ", it).trim().take(240)).append('\n')
             }
         }
-        return out.toString()
+        val txt = out.toString()
+        try { file().writeText(txt) } catch (t: Throwable) { }
+        return txt
     }
 }
