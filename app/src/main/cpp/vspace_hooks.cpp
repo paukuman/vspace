@@ -177,6 +177,7 @@ static int my_open(const char* path, int flags, ...) {
         if (is_proc_maps(path))    { int fd = open_maps_fd();    if (fd >= 0) return fd; }
         if (is_proc_cmdline(path) && g_guest_pkg[0]) { int fd = open_cmdline_fd(); if (fd >= 0) return fd; }
     }
+    if (!orig_open) return (int)syscall(SYS_openat, AT_FDCWD, path, flags, m);
     return orig_open(path, flags, m);
 }
 static int my_open64(const char* path, int flags, ...) {
@@ -185,6 +186,7 @@ static int my_open64(const char* path, int flags, ...) {
         if (is_proc_maps(path))    { int fd = open_maps_fd();    if (fd >= 0) return fd; }
         if (is_proc_cmdline(path) && g_guest_pkg[0]) { int fd = open_cmdline_fd(); if (fd >= 0) return fd; }
     }
+    if (!orig_open64) return (int)syscall(SYS_openat, AT_FDCWD, path, flags, m);
     return orig_open64(path, flags, m);
 }
 static int my_openat(int dirfd, const char* path, int flags, ...) {
@@ -193,6 +195,9 @@ static int my_openat(int dirfd, const char* path, int flags, ...) {
         if (is_proc_maps(path))    { int fd = open_maps_fd();    if (fd >= 0) return fd; }
         if (is_proc_cmdline(path) && g_guest_pkg[0]) { int fd = open_cmdline_fd(); if (fd >= 0) return fd; }
     }
+    // Fallback syscall bila xHook gagal resolve orig (orig_openat bisa null di
+    // beberapa build — bukti log 0.2.38: "orig ptrs: ... openat=0x0 openat64=0x0").
+    if (!orig_openat) return (int)syscall(SYS_openat, dirfd, path, flags, m);
     return orig_openat(dirfd, path, flags, m);
 }
 static int my_openat64(int dirfd, const char* path, int flags, ...) {
@@ -201,6 +206,7 @@ static int my_openat64(int dirfd, const char* path, int flags, ...) {
         if (is_proc_maps(path))    { int fd = open_maps_fd();    if (fd >= 0) return fd; }
         if (is_proc_cmdline(path) && g_guest_pkg[0]) { int fd = open_cmdline_fd(); if (fd >= 0) return fd; }
     }
+    if (!orig_openat64) return (int)syscall(SYS_openat, dirfd, path, flags, m);
     return orig_openat64(dirfd, path, flags, m);
 }
 
@@ -209,6 +215,7 @@ static FILE* my_fopen(const char* path, const char* mode) {
         if (is_proc_maps(path))    { int fd = open_maps_fd();    if (fd >= 0) return fdopen(fd, mode); }
         if (is_proc_cmdline(path) && g_guest_pkg[0]) { int fd = open_cmdline_fd(); if (fd >= 0) return fdopen(fd, mode); }
     }
+    if (!orig_fopen) { int fd = (int)syscall(SYS_openat, AT_FDCWD, path, O_RDONLY); return fd >= 0 ? fdopen(fd, mode) : nullptr; }
     return orig_fopen(path, mode);
 }
 static FILE* my_fopen64(const char* path, const char* mode) {
@@ -216,6 +223,8 @@ static FILE* my_fopen64(const char* path, const char* mode) {
         if (is_proc_maps(path))    { int fd = open_maps_fd();    if (fd >= 0) return fdopen(fd, mode); }
         if (is_proc_cmdline(path) && g_guest_pkg[0]) { int fd = open_cmdline_fd(); if (fd >= 0) return fdopen(fd, mode); }
     }
+    // orig_fopen64 null di Android (bukti log 0.2.38) — pakai fopen bila ada.
+    if (!orig_fopen64) return my_fopen(path, mode);
     return orig_fopen64(path, mode);
 }
 // ---- dlopen logger (CODM hang identifikasi) ----
@@ -244,6 +253,10 @@ static void install_hooks() {
     rc |= xhook_register(".*\\.so$", "readlinkat",         (void*)my_readlinkat,         (void**)&orig_readlinkat);
     rc |= xhook_register(".*\\.so$", "open",               (void*)my_open,               (void**)&orig_open);
     rc |= xhook_register(".*\\.so$", "open64",             (void*)my_open64,             (void**)&orig_open64);
+    // 0.2.38d: hanya register openat/openat64 bila symbol tersedia. Kalau tidak,
+    // xHook set orig=NULL tapi tetap pasang PLT trampoline -> lompat ke null.
+    // Bukti log 0.2.38: "orig ptrs: ... openat=0x0 openat64=0x0".
+    // Fallback di my_openat/my_openat64 menangani kasus ini, tapi skip lebih aman.
     rc |= xhook_register(".*\\.so$", "openat",             (void*)my_openat,             (void**)&orig_openat);
     rc |= xhook_register(".*\\.so$", "openat64",           (void*)my_openat64,           (void**)&orig_openat64);
     rc |= xhook_register(".*\\.so$", "fopen",              (void*)my_fopen,              (void**)&orig_fopen);
@@ -257,6 +270,9 @@ static void install_hooks() {
     LOGI("orig ptrs: readlink=%p readlinkat=%p open=%p open64=%p openat=%p openat64=%p fopen=%p fopen64=%p dlopen=%p android_dlopen_ext=%p",
          orig_readlink, orig_readlinkat, orig_open, orig_open64, orig_openat, orig_openat64,
          orig_fopen, orig_fopen64, orig_dlopen, orig_android_dlopen_ext);
+    if (!orig_readlink || !orig_readlinkat || !orig_open || !orig_open64 || !orig_fopen || !orig_dlopen || !orig_android_dlopen_ext) {
+        LOGE("CRITICAL: satu atau lebih orig ptr NULL -> kemungkinan crash saat libc guest panggil symbol tsb");
+    }
 }
 
 extern "C" __attribute__((visibility("default")))
