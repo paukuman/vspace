@@ -137,7 +137,6 @@ object Diag {
             VLog.bootE("diag", t)
         }
     }
-}
 
     /**
      * 0.2.28: watchdog pasca-boot. Setelah ~3.5 detik, catat thread state semua thread
@@ -150,15 +149,20 @@ object Diag {
             try {
                 val all = Thread.getAllStackTraces()
                 val sb = StringBuilder("threads[$pkg] ${all.size} thread:")
-                for ((t, st) in all.sortedBy { it.key.name }) {
-                    if (t == Thread.currentThread()) continue
-                    val name = t.name
+                val entries = all.entries.sortedBy { it.key.name }
+                for (entry in entries) {
+                    val t: Thread = entry.key
+                    val st: Array<StackTraceElement> = entry.value
+                    if (t === Thread.currentThread()) continue
+                    val name: String = t.name
                     // Filter thread yang tidak relevan
                     if (name.startsWith("vspace-maps") || name.startsWith("Binder:") ||
                         name.startsWith("Signal Catcher") || name.startsWith("JDWP")) continue
-                    sb.append("\n   [").append(name).append("] state=").append(t.state)
+                    sb.append("\n   [").append(name).append("] state=").append(t.state.name)
                     // Ambil 3 frame teratas saja
-                    st.take(3).forEach { sb.append("\n      at ").append(it) }
+                    for (frame in st.take(3)) {
+                        sb.append("\n      at ").append(frame.toString())
+                    }
                 }
                 VLog.bootOnly("thr", sb.toString())
             } catch (t: Throwable) { VLog.bootE("thr", t) }
@@ -190,3 +194,4 @@ object Diag {
             )
         } catch (t: Throwable) { VLog.bootE("id", t) }
     }
+}
