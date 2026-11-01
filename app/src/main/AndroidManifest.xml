@@ -67,6 +67,7 @@
             android:taskAffinity="com.example.vspace.slot0"
             android:exported="false"
             android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density|colorMode"
             android:theme="@android:style/Theme.NoTitleBar" />
         <activity
@@ -75,6 +76,7 @@
             android:taskAffinity="com.example.vspace.slot1"
             android:exported="false"
             android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density|colorMode"
             android:theme="@android:style/Theme.NoTitleBar" />
         <activity
@@ -83,6 +85,7 @@
             android:taskAffinity="com.example.vspace.slot2"
             android:exported="false"
             android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection|density|colorMode"
             android:theme="@android:style/Theme.NoTitleBar" />
     </application>

@@ -119,6 +119,19 @@ object GuestHooks {
             } catch (t: Throwable) {
                 VLog.e("startActivity", t)
             }
+            // 0.2.29: skip setRequestedOrientation ke landscape. Stub di manifest sudah
+            // sensorLandscape; panggilan ini memicu system_server relaunch Activity guest
+            // lewat config change, dan pada MIUI A10 binder call-nya menggantung (log 0.2.28:
+            // thread [main] RUNNABLE di IActivityTaskManager.setRequestedOrientation, +468 ms
+            // slow binder). Root cause CODM blackscreen setelah izin storage di-Allow.
+            if (m.name == "setRequestedOrientation") {
+                val orient = (args?.getOrNull(1) as? Int) ?: -1
+                // 0=LANDSCAPE, 6=SENSOR_LANDSCAPE, 11=USER_LANDSCAPE
+                if (orient == 0 || orient == 6 || orient == 11) {
+                    VLog.w("atm", "skip setRequestedOrientation($orient) — stub sudah sensorLandscape")
+                    return@newProxyInstance null
+                }
+            }
             try {
                 if (args == null) m.invoke(real) else m.invoke(real, *args)
             } catch (e: InvocationTargetException) {
