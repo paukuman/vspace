@@ -231,18 +231,36 @@ static FILE* my_fopen64(const char* path, const char* mode) {
 static void* (*orig_dlopen)(const char*, int) = nullptr;
 static void* (*orig_android_dlopen_ext)(const char*, int, const android_dlextinfo*, const void*) = nullptr;
 
+// 0.2.38h: JANGAN konsumsi dlerror() di hook. bionic dlerror single-shot:
+// panggilan pertama kuras thread-local state dan RETURN string; panggilan
+// berikutnya NULL. libnativeloader (A10) memanggil dlerror() setelah
+// android_dlopen_ext gagal lalu strdup() hasilnya — kalau hook sudah
+// menguras state, strdup(NULL) → strlen(NULL) → SIGSEGV.
+//
+// BUKTI KERAS (crash 8BP 2026-11-01, pid 25764, tid 25938):
+//   - 21:14:00.972 logcat: E/VSpaceHook "android_dlopen_ext GAGAL: ...
+//     libgame-...so dlerror=dlopen failed: ..."  ← state dikuras di sini.
+//   - 21:14:01.213 logcat crash buffer: SIGSEGV @ tid 25938 (LoadingThread),
+//     x0=0x0 → strdup+20 → strlen+16.
+//   - Stack #02 = OpenNativeLibraryInNamespace+144.
+//   - Disasm libnativeloader.so (Build ID 72b91484d6bda284487a4c91e9e1ffd4,
+//     sama dgn yg di device) offset 0x7fe4–0x7fe8:
+//         7fe4: bl dlerror@plt
+//         7fe8: bl strdup@plt      ← crash PC ini
+//
+// Fix: hook hanya log nama, biarkan dlerror utuh untuk pemanggil asli.
 static void* my_dlopen(const char* name, int flags) {
     LOGI("dlopen: %s flags=0x%x", sp(name), flags);
     void* h = orig_dlopen(name, flags);
     if (h) LOGI("dlopen ok: %s", sp(name));
-    else   LOGE("dlopen GAGAL: %s dlerror=%s", sp(name), sp(dlerror()));
+    else   LOGE("dlopen GAGAL: %s (dlerror DIBIARKAN utuh)", sp(name));
     return h;
 }
 static void* my_android_dlopen_ext(const char* name, int flags, const android_dlextinfo* info, const void* caller) {
     LOGI("android_dlopen_ext: %s flags=0x%x", sp(name), flags);
     void* h = orig_android_dlopen_ext(name, flags, info, caller);
     if (h) LOGI("android_dlopen_ext ok: %s", sp(name));
-    else   LOGE("android_dlopen_ext GAGAL: %s dlerror=%s", sp(name), sp(dlerror()));
+    else   LOGE("android_dlopen_ext GAGAL: %s (dlerror DIBIARKAN utuh)", sp(name));
     return h;
 }
 
