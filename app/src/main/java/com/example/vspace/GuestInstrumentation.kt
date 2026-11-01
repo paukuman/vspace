@@ -48,12 +48,8 @@ class GuestInstrumentation(
     override fun callActivityOnCreate(activity: Activity, icicle: Bundle?, persistentState: PersistableBundle?) {
         patch(activity); real.callActivityOnCreate(activity, icicle, persistentState)
     }
-    override fun callActivityOnRestoreInstanceState(activity: Activity, savedInstanceState: Bundle?) {
-        patch(activity); real.callActivityOnRestoreInstanceState(activity, savedInstanceState)
-    }
-    override fun callActivityOnRestoreInstanceState(activity: Activity, savedInstanceState: Bundle, persistentState: PersistableBundle) {
-        patch(activity); real.callActivityOnRestoreInstanceState(activity, savedInstanceState, persistentState)
-    }
+    // 0.2.26b: callActivityOnRestoreInstanceState tidak ada di SDK 34 (override nothing),
+    // dan patch di onCreate sudah cukup — Activity selalu lewat onCreate dulu sebelum restore.
     override fun callActivityOnNewIntent(activity: Activity, intent: Intent) {
         patch(activity); real.callActivityOnNewIntent(activity, intent)
     }
