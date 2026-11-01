@@ -35,6 +35,30 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    // 0.2.38e: keystore debug stabil yang di-commit, supaya build lokal & CI
+    // berbagi fingerprint sama. Tanpa ini, `assembleDebug` di CI menghasilkan
+    // ~/.android/debug.keystore baru per runner -> `adb install -r` gagal
+    // (bukti: 0.2.38 run 41310207186 vs 0.2.38d run 41312249134, signature
+    // mismatch INSTALL_FAILED_UPDATE_INCOMPATIBLE). Ini keystore DEBUG,
+    // bukan production; aman dibagikan.
+    signingConfigs {
+        create("vspaceDebug") {
+            storeFile = file("../keystore/vspace-debug.p12")
+            storeType = "PKCS12"
+            storePassword = "vspace-debug-2026"
+            keyAlias = "vspace-debug"
+            keyPassword = "vspace-debug-2026"
+        }
+    }
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("vspaceDebug")
+        }
+        getByName("release") {
+            // Default: tetap unsigned/standar. Release production pakai kunci terpisah.
+        }
+    }
 }
 
 dependencies {
