@@ -129,3 +129,10 @@ Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned
   - `LogcatDump` buffer system: filter LIFE diperluas (`ActivityManager|Force finishing|Killing|has died|force-stop|ANR in`).
   - `GuestHooks.rewriteStart`: log `flags/action/data` intent saat rewrite (lacak `finish()`/mode launch CODM).
   - Ditunggu: kirim `boot.log` via tombol baru. Fokus baris `ext:` & `diag:`.
+- **0.2.24** — Storage tidak lagi bergantung pada `Android/{data,obb,media}/<pkg>` di `/storage`.
+  - Permintaan user: jangan andalkan folder guest di `/storage/emulated/0`.
+  - Fix: `StorageHooks.prepareAndPatch(pkg, guestApp)` — preset field `ContextImpl` guest (`mExternalFilesDir`, `mExternalCacheDir`, `mObbDir`, `mExternalFilesDirs`, `mExternalCacheDirs`, `mExternalMediaDirs`) ke folder **milik VSpace sendiri**: `filesDir/ext/<pkg>/{files,cache,obb,media,no_backup}`.
+  - Konsekuensi: `getExternalFilesDir()/getExternalCacheDir()/getObbDir()` dari guest langsung mengembalikan path `/data/data/com.example.vspace/ext/<pkg>/...` tanpa menyentuh `/storage`. Karena `/data` bebas, error "storage 20MB" (8BP) diharapkan hilang kalau 8BP cek lewat Context API.
+  - `Diag.prepareExternal` sekarang **opsional** (dibungkus try/catch sebagai info saja), tidak lagi jadi syarat. Kalau SE Linux blokir mkdir di `/storage`, tidak fatal.
+  - Log tag `stor` di `boot.log`: `prepareAndPatch <pkg> base=<path> files=<ok>` + `ContextImpl dipatch -> ...`. Kalau `set <field> gagal` muncul, artinya nama field beda di SDK tertentu (butuh penyesuaian).
+  - **Belum:** game yang cek `StatFs`/`File.getUsableSpace` langsung di `/storage/emulated/0` (bukan via Context API) masih bisa melihat storage asli; kalau boot.log menunjukkan kasus ini, langkah berikutnya hook `StatFs` atau preset `Environment.sUserRequired`.

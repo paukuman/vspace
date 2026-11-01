@@ -257,7 +257,9 @@ object GuestHooks {
         // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
         Diag.describe(app, g.pkg, appInfo, g.libDir)
         Diag.snapshot("sebelum-boot", g.pkg)
-        Diag.prepareExternal(g.pkg)
+        // 0.2.24: tidak lagi bergantung pada Android/{data,obb,media}/<pkg> di /storage.
+        // prepareExternal hanya dijalankan sebagai info (kalau berhasil, bagus; kalau gagal, tidak fatal).
+        try { Diag.prepareExternal(g.pkg) } catch (t: Throwable) { VLog.bootE("ext", t) }
         Diag.describeStorage(g.pkg, appInfo)
         Diag.watch(g.pkg)
         val atCls = Class.forName("android.app.ActivityThread")
@@ -275,6 +277,9 @@ object GuestHooks {
         ).apply { isAccessible = true }
         val guestApp = make.invoke(loadedApk, false, null) as Application
         VLog.w("boot", "Application guest dibuat: ${guestApp.javaClass.name}")
+
+        // 0.2.24: preset cache external dirs ke filesDir/ext/<pkg>/... (tidak butuh /storage).
+        try { StorageHooks.prepareAndPatch(g.pkg, guestApp) } catch (t: Throwable) { VLog.bootE("stor", t) }
 
         val providers = g.providers(app)
         if (providers.isNotEmpty()) {
