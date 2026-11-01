@@ -156,3 +156,12 @@ Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned
   - `GuestInstrumentation.patch()` juga log `stor: Activity.mBase dipatch: <class>` (bukti Activity sudah pakai GuestContext) dan `Activity.mBase patch gagal: ...` kalau refleksi gagal.
   - Bump versionCode 28, versionName 0.2.26.
   - **Ditunggu**: user uji 0.2.26 → boot.log (cari `Instrumentation di-wrap`, `Activity.mBase dipatch`, `testWrite internal_…: OK` untuk Activity) + hasil visual 8BP/CODM.
+- **0.2.27** — Guest storage di `/storage/emulated/0/Android/data/com.example.vspace/files/guest/<pkg>`.
+  - **User insight**: folder `Android/data/com.example.vspace` memang tidak ada karena VSpace belum pernah panggil `getExternalFilesDir()`. Path milik VSpace sendiri di `/storage` = **writable** (berbeda dari path guest `Android/data/<pkg-guest>` yang EACCES — sebab "storage 20MB" & CODM blackscreen).
+  - Fix:
+    - `VApp.attachBaseContext`: panggil `getExternalFilesDir(null)` sekali di tiap proses supaya folder dibuat sistem + log `env: getExternalFilesDir(null)=... canWrite=...`.
+    - `StorageHooks.rootFor(pkg, guestApp)`: prioritas ke `VApp.instance.getExternalFilesDir(null)/guest/<pkg>` (prefix `/storage/...` cocok harapan game, writable). Fallback ke `/data/.../ext/<pkg>` kalau gagal. Log `stor: rootFor <pkg> -> external ... canWrite=true` atau `-> internal ...`.
+  - Dampak: `GuestContext` (Application + Activity) sekarang mengarah ke `/storage/emulated/0/Android/data/com.example.vspace/files/guest/<pkg>/files|cache|obb|media`. Jadi `Activity.getExternalFilesDir()` dari guest = path benar + writable.
+  - Batal: rencana `EnvironmentHooks.kt` (patch static `Environment.sCurrentUser`) — terlalu berisiko, dan user insight menunjukkan jalur yang lebih natural (pakai path VSpace sendiri).
+  - Bump versionCode 29, versionName 0.2.27.
+  - **Ditunggu**: user uji → boot.log cari `env: getExternalFilesDir`, `stor: rootFor ... -> external`, `testWrite internal_...: OK`.

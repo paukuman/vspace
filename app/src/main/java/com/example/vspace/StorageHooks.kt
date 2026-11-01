@@ -15,10 +15,24 @@ import java.io.File
  */
 object StorageHooks {
 
-    /** Root folder /data/.../ext/<pkg> (dipakai GuestInstrumentation juga). */
+    /**
+     * 0.2.27: root folder untuk guest — prioritaskan folder external milik VSpace sendiri
+     * (/storage/emulated/0/Android/data/com.example.vspace/files/guest/<pkg>) yang WRITABLE
+     * oleh UID host + prefix /storage/... cocok harapan game. Fallback ke /data kalau gagal.
+     */
     fun rootFor(pkg: String, guestApp: Application): File {
+        val extBase = try { VApp.instance.getExternalFilesDir(null) } catch (t: Throwable) { null }
+        if (extBase != null && extBase.canWrite()) {
+            val root = File(extBase, "guest/$pkg")
+            try { root.mkdirs() } catch (t: Throwable) { }
+            VLog.bootOnly("stor", "rootFor $pkg -> external $root (canWrite=${root.canWrite()})")
+            return root
+        }
         val dataDir = guestApp.filesDir.parentFile ?: return File("/data")
-        return File(dataDir, "ext/$pkg")
+        val root = File(dataDir, "ext/$pkg")
+        try { root.mkdirs() } catch (t: Throwable) { }
+        VLog.bootOnly("stor", "rootFor $pkg -> internal $root (extBase=${extBase?.absolutePath} canWrite=${extBase?.canWrite()})")
+        return root
     }
 
     fun prepareAndPatch(pkg: String, guestApp: Application) {

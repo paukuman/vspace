@@ -15,6 +15,12 @@ class VApp : Application() {
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
         instance = this
+        // 0.2.27: pastikan folder /storage/emulated/0/Android/data/com.example.vspace/files dibuat
+        // oleh sistem (dipanggil sekali di setiap proses, idempoten). Dipakai sebagai root storage guest.
+        try {
+            val ext = getExternalFilesDir(null)
+            VLog.bootOnly("env", "getExternalFilesDir(null)=${ext?.absolutePath} exists=${ext?.exists()} canWrite=${ext?.canWrite()}")
+        } catch (t: Throwable) { VLog.bootE("env", t) }
         try {
             HiddenApiBypass.addHiddenApiExemptions("L")
         } catch (t: Throwable) {
