@@ -123,7 +123,18 @@ class Guest(
 
 object VirtualInstaller {
 
-    private fun root(ctx: Context) = File(ctx.filesDir, "virtual").apply { mkdirs() }
+    // 0.2.28: folder guest dipindah dari "virtual" (string mencolok di /proc/self/maps)
+    // ke "p" (netral). Migrasi sekali jalan supaya instalasi lama tidak hilang.
+    private fun root(ctx: Context): File {
+        val newRoot = File(ctx.filesDir, "p")
+        val oldRoot = File(ctx.filesDir, "virtual")
+        if (!newRoot.exists() && oldRoot.isDirectory) {
+            try { oldRoot.renameTo(newRoot); VLog.w("install", "migrasi folder root virtual -> p") }
+            catch (t: Throwable) { VLog.w("install", "migrasi folder root gagal: ${t.message}") }
+        }
+        newRoot.mkdirs()
+        return newRoot
+    }
 
     /**
      * 0.2.19: folder guest meniru pola instalasi Android: <paket>-<token>/base.apk, split LANGSUNG di folder yang sama.

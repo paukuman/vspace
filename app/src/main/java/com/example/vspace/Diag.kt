@@ -23,7 +23,10 @@ object Diag {
             if (p.size < 6) continue
             val path = p[5]
             if (!path.startsWith("/")) continue
-            if (path.contains(".apk") || path.contains("/data/app/") || path.contains("/virtual/") || path.contains(pkg)) {
+            // 0.2.28: folder guest kini "files/p/" (sebelumnya "files/virtual/").
+            // Keduanya tetap dikenali supaya log lama tidak berubah arti.
+            if (path.contains(".apk") || path.contains("/data/app/") ||
+                path.contains("/p/") || path.contains("/virtual/") || path.contains(pkg)) {
                 if (!res.containsKey(path)) res[path] = p[1]
             }
         }
@@ -135,3 +138,55 @@ object Diag {
         }
     }
 }
+
+    /**
+     * 0.2.28: watchdog pasca-boot. Setelah ~3.5 detik, catat thread state semua thread
+     * (nama + state + stack) ke boot.log. Berguna untuk mendiagnosa "Unity stuck" (CODM
+     * blackscreen: log berhenti tepat setelah libunity.so dimuat).
+     */
+    fun threadWatchdog(pkg: String) {
+        val th = Thread {
+            try { Thread.sleep(3500) } catch (t: InterruptedException) { return@Thread }
+            try {
+                val all = Thread.getAllStackTraces()
+                val sb = StringBuilder("threads[$pkg] ${all.size} thread:")
+                for ((t, st) in all.sortedBy { it.key.name }) {
+                    if (t == Thread.currentThread()) continue
+                    val name = t.name
+                    // Filter thread yang tidak relevan
+                    if (name.startsWith("vspace-maps") || name.startsWith("Binder:") ||
+                        name.startsWith("Signal Catcher") || name.startsWith("JDWP")) continue
+                    sb.append("\n   [").append(name).append("] state=").append(t.state)
+                    // Ambil 3 frame teratas saja
+                    st.take(3).forEach { sb.append("\n      at ").append(it) }
+                }
+                VLog.bootOnly("thr", sb.toString())
+            } catch (t: Throwable) { VLog.bootE("thr", t) }
+        }
+        th.isDaemon = true
+        th.name = "vspace-thr-watchdog"
+        th.start()
+    }
+
+    /**
+     * 0.2.28: log identitas guest yang dilihat oleh kode Java (bukan yang dipatch di ApplicationInfo).
+     * Mismatch antara `appInfo.uid` (yang kita force ke SYSTEM_UID=1000) dan `Process.myUid()`
+     * (yang sebenarnya, mis. 10448) adalah kandidat kuat penyebab deteksi virtual (ACE di CODM).
+     */
+    fun logIdentity(pkg: String, ai: ApplicationInfo) {
+        try {
+            val appProc = try { Application.getProcessName() } catch (t: Throwable) { "?" }
+            val mm = try { Process.myUid() } catch (t: Throwable) { -1 }
+            val appUid = try { ai.uid } catch (t: Throwable) { -1 }
+            val appPkgName = try { ai.packageName } catch (t: Throwable) { "?" }
+            val appProcName = try { ai.processName } catch (t: Throwable) { "?" }
+            val appDataDir = try { ai.dataDir } catch (t: Throwable) { "?" }
+            val appSrc = try { ai.sourceDir } catch (t: Throwable) { "?" }
+            VLog.bootOnly(
+                "id",
+                "guest=$pkg | myUid=$mm myPid=${Process.myPid()} myTid=${Process.myTid()} " +
+                    "processName=$appProc | appInfo.uid=$appUid pkgName=$appPkgName " +
+                    "procName=$appProcName dataDir=$appDataDir sourceDir=$appSrc"
+            )
+        } catch (t: Throwable) { VLog.bootE("id", t) }
+    }

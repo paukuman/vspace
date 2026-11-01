@@ -259,6 +259,8 @@ object GuestHooks {
         if (!booted.add(g.pkg)) return
         // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
         Diag.describe(app, g.pkg, appInfo, g.libDir)
+        // 0.2.28: catat identitas nyata vs yang dipatch (kandidat utama deteksi virtual ACE).
+        try { Diag.logIdentity(g.pkg, appInfo) } catch (t: Throwable) { VLog.bootE("id", t) }
         Diag.snapshot("sebelum-boot", g.pkg)
         // 0.2.24: tidak lagi bergantung pada Android/{data,obb,media}/<pkg> di /storage.
         // prepareExternal hanya dijalankan sebagai info (kalau berhasil, bagus; kalau gagal, tidak fatal).
@@ -302,5 +304,7 @@ object GuestHooks {
         wrappedInstr.callApplicationOnCreate(guestApp)
         VLog.w("boot", "Application.onCreate selesai")
         Diag.snapshot("setelah-boot", g.pkg)
+        // 0.2.28: watchdog thread — kalau game stuck (mis. Unity di CODM), kita bisa lihat thread apa yang nyangkut.
+        try { Diag.threadWatchdog(g.pkg) } catch (t: Throwable) { VLog.bootE("thr", t) }
     }
 }
