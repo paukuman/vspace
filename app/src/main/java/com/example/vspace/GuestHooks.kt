@@ -441,24 +441,36 @@ object GuestHooks {
      * dipertahankan untuk restore manual oleh user.
      */
     /**
-     * 0.2.36: AUTO_SKIP diaktifkan lagi KHUSUS untuk lib anti-cheat yang ter-bukti
-     * menyebabkan hang (bukan untuk lib fungsional).
+     * 0.2.37: AUTO_SKIP dinonaktifkan kembali — 0.2.36 terbukti REGRESI.
      *
-     * Bukti dari tombstone v0.2.35 (SIGABRT CODM): stack main thread saat hang adalah
-     *   libc.sem_wait -> libanort.so -> libunity.so
-     * → libanort.so (ANORT, anti-cheat Tencent) men-deadlock di sem_wait saat dipanggil
-     *   dari libunity.so. Skip `libanort.so` membuat dlopen gagal cepat → Unity fallback
-     *   tanpa anti-cheat, game tetap jalan (banyak virtual app melakukan ini).
+     * Bukti dari log crash CODM v0.2.36 (dikirim user):
+     *   FATAL EXCEPTION: main
+     *   java.lang.NoClassDefFoundError: androidx.multidex.MultiDexApplication
+     *   Caused by: UnsatisfiedLinkError: ... couldn't find "libanort.so"
+     *       at com.ano.gshell.AnoApplication.<clinit>(AnoApplication.java:18)
+     *       at ... LoadedApk.makeApplication
      *
-     * JANGAN skip `libtgpa*` — 0.2.34 membuktikan itu memicu UnsatisfiedLinkError
-     * di CODMainActivity.<clinit>.
+     * → `AnoApplication.<clinit>` memanggil System.loadLibrary("anort") EKSPLISIT.
+     *   Rename libanort.so -> libanort.so.disabled = dlopen gagal cepat = TAPI
+     *   class-init gagal = NoClassDefFoundError = crash sebelum guest jalan.
+     *   Jadi skip libanort TIDAK menyelesaikan hang; dia menggantinya dengan crash.
+     *
+     * Analisis .so (v0.2.36 offline, bukti):
+     *   - libanort.so (split_config.arm64_v8a.apk, 1.6 MB, stripped, NDK r27c):
+     *       DT_NEEDED: liblog, libc, libm, libstdc++, libdl
+     *       Export: JNI_OnLoad + REL_HOOK_0..7
+     *       INIT_ARRAYSZ = 32 byte (4 constructor) — bukan 64 seperti libanogs
+     *       strings deteksi: TIDAK ADA (/proc, root, maps) — bukan detektor anti-virtual
+     *       → deadlock di tombstone terjadi saat Unity memanggil fungsi libanort saat
+     *         nativeLoad, BUKAN saat dlopen. Skip rename = solusi salah.
+     *   - libanogs.so (5.5 MB): INIT_ARRAYSZ = 512 byte (64 ctor), string deteksi
+     *       eksplisit "is_root=%d", "|emulator_name=", "ptrace",
+     *       "inline_hook_opcode_dismatch", "mt2_no_root" → ini detektor sebenarnya.
+     *
+     * Kesimpulan: AUTO_SKIP sementara dikosongkan sampai kita punya bukti baru dari
+     * log v0.2.37 (harus crash-free untuk sampai ke hang, bukan crash duluan).
      */
-    private val AUTO_SKIP: List<Pair<(String) -> Boolean, List<String>>> = listOf(
-        ({ p: String ->
-            p.startsWith("com.activision") || p.contains("callofduty") ||
-                p == "com.garena.game.codm" || p.startsWith("com.tencent.tmgp.cod")
-        }) to listOf("libanort.so")
-    )
+    private val AUTO_SKIP: List<Pair<(String) -> Boolean, List<String>>> = listOf()
 
     private fun autoSkipLibs(app: Application, pkg: String, libDir: File) {
         val names = AUTO_SKIP.filter { (match, _) -> match(pkg) }.flatMap { it.second }.distinct()
