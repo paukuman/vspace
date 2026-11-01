@@ -292,8 +292,14 @@ object GuestHooks {
             VLog.w("boot", "ContentProvider dipasang: ${providers.size}")
         }
 
-        val instrumentation = Refl.get(at, "mInstrumentation") as Instrumentation
-        instrumentation.callApplicationOnCreate(guestApp)
+        // 0.2.26: bungkus mInstrumentation supaya Activity.mBase juga dipatch ke GuestContext
+        // (Application context saja tidak cukup — Activity punya ContextImpl sendiri).
+        val realInstr = Refl.get(at, "mInstrumentation") as Instrumentation
+        val root = StorageHooks.rootFor(g.pkg, guestApp)
+        val wrappedInstr = GuestInstrumentation(realInstr, g.pkg, root)
+        Refl.set(at, "mInstrumentation", wrappedInstr)
+        VLog.bootOnly("stor", "Instrumentation di-wrap: ${realInstr.javaClass.simpleName} -> GuestInstrumentation root=$root")
+        wrappedInstr.callApplicationOnCreate(guestApp)
         VLog.w("boot", "Application.onCreate selesai")
         Diag.snapshot("setelah-boot", g.pkg)
     }

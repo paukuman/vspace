@@ -15,6 +15,12 @@ import java.io.File
  */
 object StorageHooks {
 
+    /** Root folder /data/.../ext/<pkg> (dipakai GuestInstrumentation juga). */
+    fun rootFor(pkg: String, guestApp: Application): File {
+        val dataDir = guestApp.filesDir.parentFile ?: return File("/data")
+        return File(dataDir, "ext/$pkg")
+    }
+
     fun prepareAndPatch(pkg: String, guestApp: Application) {
         try { dumpContextImplFields() } catch (t: Throwable) { VLog.bootE("stor", t) }
 

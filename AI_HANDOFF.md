@@ -147,3 +147,12 @@ Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned
   - Log tag `stor` di `boot.log`: `ContextImpl fields (...)` (daftar field), `GuestContext dipasang ...`, `testWrite internal_...: OK ...`, `testWrite storage_data_files_...: WRITE GAGAL ...`/`OK`, dst.
   - Bump versionCode 27, versionName 0.2.25.
   - **Ditunggu**: user uji 0.2.25 → kirim boot.log + log biasa kalau masih error.
+- **0.2.26** — GuestInstrumentation: patch Activity.mBase ke GuestContext.
+  - **Data user 0.2.25**: Application context OK (`GuestContext dipasang base=ContextImpl`), tapi `testWrite storage_data_files_…: WRITE GAGAL EACCES` → SE Linux **menolak tulis** di `/storage/emulated/0/Android/data/<pkg>/files`. Ini penjelasan 8BP "storage 20MB" & CODM blackscreen setelah izin storage.
+  - Insight: `Activity` dibuat **setelah** `Application.onCreate` dan punya `ContextImpl` sendiri. `Activity.getExternalFilesDir()` masih mengembalikan `/storage/...` (EACCES) meski Application sudah dipatch.
+  - Fix: `GuestInstrumentation` (BARU) — subclass `Instrumentation` yang membungkus `real` dan mem-patch `Activity.mBase` ke `GuestContext` di `callActivityOnCreate` + semua lifecycle (start/resume/pause/stop/destroy/newIntent/saveInstanceState/postCreate/restoreInstanceState).
+  - `StorageHooks.rootFor(pkg, guestApp)` — helper path root `/data/.../ext/<pkg>` (dipakai bersama).
+  - `GuestHooks.bootGuest`: bungkus `ActivityThread.mInstrumentation` setelah `StorageHooks.prepareAndPatch`, sebelum `callApplicationOnCreate`. Log `stor: Instrumentation di-wrap: ... -> GuestInstrumentation root=...`.
+  - `GuestInstrumentation.patch()` juga log `stor: Activity.mBase dipatch: <class>` (bukti Activity sudah pakai GuestContext) dan `Activity.mBase patch gagal: ...` kalau refleksi gagal.
+  - Bump versionCode 28, versionName 0.2.26.
+  - **Ditunggu**: user uji 0.2.26 → boot.log (cari `Instrumentation di-wrap`, `Activity.mBase dipatch`, `testWrite internal_…: OK` untuk Activity) + hasil visual 8BP/CODM.
