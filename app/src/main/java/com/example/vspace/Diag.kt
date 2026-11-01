@@ -82,4 +82,56 @@ object Diag {
             VLog.e("boot", t)
         }
     }
+
+    /** 0.2.22: buat folder eksternal meniru instalasi Android (Android/{data,obb,media}/<pkg>). */
+    fun prepareExternal(pkg: String) {
+        try {
+            val ext = android.os.Environment.getExternalStorageDirectory()
+            val cand = listOf(
+                "Android/data/$pkg",
+                "Android/data/$pkg/files",
+                "Android/data/$pkg/cache",
+                "Android/data/$pkg/no_backup",
+                "Android/obb/$pkg",
+                "Android/media/$pkg"
+            )
+            val res = ArrayList<String>()
+            for (rel in cand) {
+                val f = File(ext, rel)
+                val ok = try { f.mkdirs() || f.exists() } catch (t: Throwable) { false }
+                res.add("$rel=${if (ok) "OK" else "GAGAL"}")
+            }
+            val state = try { android.os.Environment.getExternalStorageState() } catch (t: Throwable) { "?" }
+            VLog.w("ext", "prepareExternal $pkg (base=${ext.absolutePath} state=$state): ${res.joinToString(" ")}")
+        } catch (t: Throwable) {
+            VLog.e("ext", t)
+        }
+    }
+
+    /** 0.2.22: laporkan avail bytes untuk path yang biasa dicek game. */
+    fun describeStorage(pkg: String, ai: ApplicationInfo) {
+        try {
+            val ext = android.os.Environment.getExternalStorageDirectory()
+            val paths = listOf(
+                android.os.Environment.getDataDirectory(),
+                ext,
+                File(ext, "Android/data/$pkg"),
+                File(ext, "Android/obb/$pkg"),
+                File(ext, "Android/media/$pkg"),
+                File(ai.dataDir),
+                File(ai.sourceDir).parentFile
+            )
+            val sb = StringBuilder("StatFs $pkg:")
+            for (p in paths) {
+                val info = try {
+                    val sf = android.os.StatFs(p.absolutePath)
+                    "avail=${sf.availableBytes / (1024 * 1024)}MB"
+                } catch (t: Throwable) { "err=${t.javaClass.simpleName}" }
+                sb.append("\n   ${p.absolutePath} exists=${p.exists()} $info")
+            }
+            VLog.w("diag", sb.toString())
+        } catch (t: Throwable) {
+            VLog.e("diag", t)
+        }
+    }
 }

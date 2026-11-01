@@ -257,6 +257,8 @@ object GuestHooks {
         // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
         Diag.describe(app, g.pkg, appInfo, g.libDir)
         Diag.snapshot("sebelum-boot", g.pkg)
+        Diag.prepareExternal(g.pkg)
+        Diag.describeStorage(g.pkg, appInfo)
         Diag.watch(g.pkg)
         val atCls = Class.forName("android.app.ActivityThread")
         val at = atCls.getDeclaredMethod("currentActivityThread").apply { isAccessible = true }.invoke(null)!!
