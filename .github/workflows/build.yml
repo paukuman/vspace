@@ -11,8 +11,13 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      # setup-android@v3 default install "tools platform-tools", tapi paket "tools"
+      # sudah dihapus dari SDK modern -> "Failed to find package 'tools'" (bukti CI 41310110766).
+      # Override packages agar hanya platform-tools yang di-fetch.
       - uses: android-actions/setup-android@v3
-      - run: sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
+        with:
+          packages: "platform-tools"
+      - run: yes | sdkmanager --install "ndk;26.1.10909125" "cmake;3.22.1"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
