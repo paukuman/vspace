@@ -79,6 +79,34 @@ object GuestHooks {
                     }
                 }
             }
+            // 0.2.33: filter host pkg dari daftar paket terinstal (8BP memindai list ini
+            // untuk cari pkg virtualizer). Signature getInstalledPackages tidak ber-arg String,
+            // jadi kita handle di sini sebelum blok di bawah.
+            try {
+                when (m.name) {
+                    "getInstalledPackages", "getInstalledApplications" -> {
+                        val raw = try {
+                            if (args == null) m.invoke(real) else m.invoke(real, *args)
+                        } catch (e: InvocationTargetException) { throw e.targetException }
+                        return@newProxyInstance filterParceledList(raw, app.packageName)
+                    }
+                    "getPackagesForUid" -> {
+                        val raw = try {
+                            if (args == null) m.invoke(real) else m.invoke(real, *args)
+                        } catch (e: InvocationTargetException) { throw e.targetException } as? Array<*>
+                        if (raw != null) {
+                            val f = raw.filter { it != app.packageName }.toTypedArray()
+                            return@newProxyInstance f
+                        }
+                    }
+                    "getPackageForUid" -> {
+                        val raw = try {
+                            if (args == null) m.invoke(real) else m.invoke(real, *args)
+                        } catch (e: InvocationTargetException) { throw e.targetException } as? String
+                        if (raw == app.packageName) return@newProxyInstance null
+                    }
+                }
+            } catch (t: Throwable) { VLog.e("hookPM.filter", t) }
             if (args != null && args.isNotEmpty() && args[0] is String) {
                 val name = m.name
                 val target = args[0] as String
@@ -110,6 +138,30 @@ object GuestHooks {
             }
         }
         Refl.field(at, "sPackageManager").set(null, proxy)
+    }
+
+    /** 0.2.33: buang host pkg dari ParceledListSlice<PackageInfo|ApplicationInfo>. */
+    private fun filterParceledList(raw: Any?, hostPkg: String): Any? {
+        if (raw == null) return null
+        try {
+            val cls = raw.javaClass
+            val getList = cls.getDeclaredMethod("getList").apply { isAccessible = true }
+            @Suppress("UNCHECKED_CAST")
+            val list = getList.invoke(raw) as? List<Any?> ?: return raw
+            val filtered = list.filter { item ->
+                when (item) {
+                    is android.content.pm.PackageInfo -> item.packageName != hostPkg
+                    is ApplicationInfo -> item.packageName != hostPkg
+                    else -> true
+                }
+            }
+            if (filtered.size == list.size) return raw
+            val ctor = cls.getDeclaredConstructor(List::class.java).apply { isAccessible = true }
+            return ctor.newInstance(filtered)
+        } catch (t: Throwable) {
+            VLog.e("hookPM.filter", t)
+            return raw
+        }
     }
 
     // ---------- 2. startActivity dari dalam guest ----------
@@ -281,6 +333,9 @@ object GuestHooks {
         // 0.2.31: skip-libs — baca files/skip_libs.txt (satu nama .so per baris), rename
         // <lib>.so menjadi <lib>.so.disabled supaya dlopen gagal cepat ("file not found")
         // alih-alih hang di JNI_OnLoad. User bisa restore manual kalau perlu.
+        // 0.2.33: auto-skip lib tgpa* di CODM (kandidat hang nativeLoad; user boleh
+        // restore .disabled kalau ternyata ini bukan penyebabnya).
+        try { autoSkipLibs(app, g.pkg, g.libDir) } catch (t: Throwable) { VLog.bootE("autoskip", t) }
         try { applySkipLibs(app, g.pkg, g.libDir) } catch (t: Throwable) { VLog.bootE("skip", t) }
         // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
         Diag.describe(app, g.pkg, appInfo, g.libDir)
@@ -350,6 +405,32 @@ object GuestHooks {
      * <libDir>/<nama> menjadi <nama>.disabled supaya dlopen gagal cepat. File .disabled
      * dipertahankan untuk restore manual oleh user.
      */
+    /** 0.2.33: daftar lib auto-skip per paket (hanya lib yang aman dinonaktifkan). */
+    private val AUTO_SKIP: List<Pair<(String) -> Boolean, List<String>>> = listOf(
+        // CODM global & Garena: libtgpa = Tencent GPU Accelerator, sering hang
+        // di JNI_OnLoad saat GL context belum siap; aman dinonaktifkan (game fallback).
+        ({ p: String ->
+            p.startsWith("com.activision") || p.contains("callofduty") || p == "com.garena.game.codm"
+        }) to listOf("libtgpa.so", "libtgpa_core.so", "libtgpa_middle.so")
+    )
+
+    private fun autoSkipLibs(app: Application, pkg: String, libDir: File) {
+        val names = AUTO_SKIP.filter { (match, _) -> match(pkg) }.flatMap { it.second }.distinct()
+        if (names.isEmpty()) return
+        val log = ArrayList<String>()
+        for (n in names) {
+            val src = File(libDir, n)
+            if (!src.exists()) { log.add("$n=absent"); continue }
+            val dst = File(libDir, "$n.disabled")
+            try {
+                if (dst.exists()) dst.delete()
+                if (src.renameTo(dst)) log.add("$n=auto-skip")
+                else log.add("$n=rename_fail")
+            } catch (t: Throwable) { log.add("$n=err:${t.javaClass.simpleName}") }
+        }
+        VLog.bootOnly("skip", "autoSkip[$pkg] ${log.joinToString(" ")}")
+    }
+
     private fun applySkipLibs(app: Application, pkg: String, libDir: File) {
         val f = File(app.filesDir, "skip_libs.txt")
         if (!f.exists()) return
