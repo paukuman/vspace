@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Intent
 import android.os.Handler
 import android.os.Message
+import java.io.File
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Modifier
 import java.lang.reflect.Proxy
@@ -270,6 +271,10 @@ object GuestHooks {
     /** Meniru ActivityThread.handleBindApplication untuk paket guest (sekali per proses). */
     private fun bootGuest(app: Application, g: Guest, appInfo: ApplicationInfo, item: Any) {
         if (!booted.add(g.pkg)) return
+        // 0.2.31: skip-libs — baca files/skip_libs.txt (satu nama .so per baris), rename
+        // <lib>.so menjadi <lib>.so.disabled supaya dlopen gagal cepat ("file not found")
+        // alih-alih hang di JNI_OnLoad. User bisa restore manual kalau perlu.
+        try { applySkipLibs(app, g.pkg, g.libDir) } catch (t: Throwable) { VLog.bootE("skip", t) }
         // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
         Diag.describe(app, g.pkg, appInfo, g.libDir)
         // 0.2.28: catat identitas nyata vs yang dipatch (kandidat utama deteksi virtual ACE).
@@ -324,5 +329,33 @@ object GuestHooks {
         // 0.2.28/0.2.30: sampler thread periodik (12x @5 dtk) — cukup untuk menangkap stuck
         // setelah libunity.so dimuat, tanpa membanjiri boot.log.
         try { Diag.threadSampler(g.pkg) } catch (t: Throwable) { VLog.bootE("thr", t) }
+        // 0.2.31: kalau main thread hang di Runtime.nativeLoad > 15 dtk, kirim SIGQUIT
+        // supaya native stack dump muncul di logcat (satu-satunya cara lihat frame native).
+        try { Diag.nativeLoadWatchdog(g.pkg) } catch (t: Throwable) { VLog.bootE("sigquit", t) }
+    }
+
+    /**
+     * 0.2.31: skip-libs. Baca files/skip_libs.txt di filesDir aplikasi host; tiap baris
+     * = nama file .so (mis. "libtgpa.so", "libanogs.so"). Kalau ada, rename
+     * <libDir>/<nama> menjadi <nama>.disabled supaya dlopen gagal cepat. File .disabled
+     * dipertahankan untuk restore manual oleh user.
+     */
+    private fun applySkipLibs(app: Application, pkg: String, libDir: File) {
+        val f = File(app.filesDir, "skip_libs.txt")
+        if (!f.exists()) return
+        val names = f.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+        if (names.isEmpty()) return
+        val applied = ArrayList<String>()
+        for (n in names) {
+            val src = File(libDir, n)
+            if (!src.exists()) { applied.add("$n=absent"); continue }
+            val dst = File(libDir, "$n.disabled")
+            try {
+                if (dst.exists()) dst.delete()
+                if (src.renameTo(dst)) applied.add("$n=disabled")
+                else applied.add("$n=rename_fail")
+            } catch (t: Throwable) { applied.add("$n=err:${t.javaClass.simpleName}") }
+        }
+        VLog.bootOnly("skip", "skip_libs[$pkg] ${applied.joinToString(" ")}")
     }
 }

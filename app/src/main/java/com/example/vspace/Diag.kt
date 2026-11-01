@@ -145,6 +145,55 @@ object Diag {
      * dini. Versi ini mengambil 12 sampel tiap 5 detik (total 60 detik) supaya thread
      * yang stuck setelah Unity mulai bisa ditangkap.
      */
+    /**
+     * 0.2.31: kirim SIGQUIT (kill -3) ke proses sendiri kalau main thread stuck di
+     * nativeLoad > threshold (dari log 0.2.30: main RUNNABLE di
+     * Runtime.nativeLoad selama 46+ detik → blackscreen CODM).
+     * SIGQUIT memicu ART men-dump native stack semua thread (via debuggerd) ke logcat
+     * dengan tag "DEBUG". Ini satu-satunya cara melihat frame native yang hang tanpa adb.
+     * Kirim sekali saja per proses.
+     */
+    @Volatile private var sigquitSent = false
+    fun nativeLoadWatchdog(pkg: String, thresholdMs: Long = 15000L) {
+        val th = Thread {
+            val start = SystemClock.uptimeMillis()
+            var streak = 0
+            while (SystemClock.uptimeMillis() - start < 120_000L) {
+                try { Thread.sleep(2000L) } catch (t: InterruptedException) { return@Thread }
+                if (sigquitSent) return@Thread
+                val mainStuck = mainInNativeLoad()
+                if (mainStuck) {
+                    streak++
+                    VLog.bootOnly("sigquit", "main nativeLoad terdeteksi (streak=$streak, +${(SystemClock.uptimeMillis()-start)/1000}s)")
+                    if (streak >= (thresholdMs / 2000L).toInt()) {
+                        sigquitSent = true
+                        val pid = android.os.Process.myPid()
+                        VLog.bootOnly("sigquit", "kirim SIGQUIT ke pid=$pid (main stuck nativeLoad > ${thresholdMs}ms)")
+                        try {
+                            Runtime.getRuntime().exec(arrayOf("kill", "-3", pid.toString())).waitFor()
+                        } catch (t: Throwable) { VLog.bootE("sigquit", t) }
+                        return@Thread
+                    }
+                } else {
+                    streak = 0
+                }
+            }
+        }
+        th.isDaemon = true
+        th.name = "vspace-sigquit-watch"
+        th.start()
+    }
+
+    private fun mainInNativeLoad(): Boolean {
+        return try {
+            val main = Thread.getAllStackTraces().keys.firstOrNull { it.name == "main" } ?: return false
+            val st = main.stackTrace
+            if (st.isEmpty()) return false
+            val top = st.first()
+            top.className == "java.lang.Runtime" && top.methodName.startsWith("nativeLoad")
+        } catch (t: Throwable) { false }
+    }
+
     @Volatile private var sampling = false
     fun threadSampler(pkg: String, intervalMs: Long = 5000L, samples: Int = 12) {
         if (sampling) return
