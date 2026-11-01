@@ -21,10 +21,21 @@ import android.app.Application
 object AntiVirtual {
     @Volatile private var installed = false
 
+    /**
+     * 0.2.34: true hanya setelah hideProcessName selesai. GuestHooks memakai flag ini
+     * untuk menunda hide `getPackageInfo(hostPkg)` sampai framework selesai boot.
+     * Root cause crash 0.2.32/0.2.33: ActivityThread.handleBindApplication memanggil
+     * getApplicationInfo(hostPkg) di slot proses untuk membuat LoadedApk SENDIRI sebelum
+     * hook siap → proxy kita melempar NameNotFoundException → FATAL EXCEPTION.
+     */
+    @Volatile var armed = false
+        private set
+
     fun install(app: Application, pkg: String) {
         if (installed) return
         installed = true
         hideProcessName(pkg)
+        armed = true
     }
 
     private fun hideProcessName(pkg: String) {

@@ -85,6 +85,14 @@ object GuestHooks {
             try {
                 when (m.name) {
                     "getInstalledPackages", "getInstalledApplications" -> {
+                        // 0.2.34: jangan filter kalau framework sendiri yang scan (boot LoadedApk
+                        // kadang enumerate paket untuk memvalidasi UID).
+                        if (callerIsFramework()) {
+                            try {
+                                return@newProxyInstance if (args == null) m.invoke(real)
+                                    else m.invoke(real, *args)
+                            } catch (e: InvocationTargetException) { throw e.targetException }
+                        }
                         val raw = try {
                             if (args == null) m.invoke(real) else m.invoke(real, *args)
                         } catch (e: InvocationTargetException) { throw e.targetException }
@@ -112,7 +120,12 @@ object GuestHooks {
                 val target = args[0] as String
                 // 0.2.32: pkg HOST sendiri (com.example.vspace) disembunyikan dari guest.
                 // 8BP memanggil getPackageInfo("com.example.vspace") untuk deteksi virtualisasi.
-                if ((name == "getPackageInfo" || name == "getApplicationInfo") && target == app.packageName) {
+                // 0.2.34: HANYA setelah AntiVirtual.armed (framework selesai boot) dan
+                // caller BUKAN framework (ActivityThread/LoadedApk). Crash 0.2.32/0.2.33:
+                // handleBindApplication memanggil getApplicationInfo(hostPkg) saat boot
+                // slot proses → NameNotFoundException → FATAL.
+                if ((name == "getPackageInfo" || name == "getApplicationInfo") &&
+                    target == app.packageName && AntiVirtual.armed && !callerIsFramework()) {
                     throw android.content.pm.PackageManager.NameNotFoundException(
                         "Package $target not found (hidden by VSpace)"
                     )
@@ -138,6 +151,29 @@ object GuestHooks {
             }
         }
         Refl.field(at, "sPackageManager").set(null, proxy)
+    }
+
+    /**
+     * 0.2.34: cek apakah caller di stack adalah framework yang butuh host pkg untuk
+     * membangun LoadedApk proses slot (ActivityThread.handleBindApplication dsb).
+     * Kalau ya → jangan hide host pkg (biar boot tidak crash).
+     */
+    private fun callerIsFramework(): Boolean {
+        return try {
+            val st = Thread.currentThread().stackTrace
+            for (f in st) {
+                val cn = f.className
+                if (cn == "android.app.ActivityThread" || cn == "android.app.LoadedApk" ||
+                    cn == "android.app.ActivityManager" || cn == "android.app.ApplicationThread") {
+                    val mn = f.methodName
+                    if (mn.startsWith("handleBindApplication") || mn.startsWith("getPackageInfoNoCheck") ||
+                        mn.startsWith("makeApplication") || mn.startsWith("installContentProviders")) {
+                        return true
+                    }
+                }
+            }
+            false
+        } catch (t: Throwable) { false }
     }
 
     /** 0.2.33: buang host pkg dari ParceledListSlice<PackageInfo|ApplicationInfo>. */
