@@ -14,7 +14,7 @@ import android.app.Application
  *  2) PackageManager bisa resolve "com.example.vspace" dari dalam guest. → di-fix di GuestHooks.
  *  3) getRunningAppProcesses() memuat "com.example.vspace:pN". → di-fix di ServiceHooks.
  *  4) /proc/self/cmdline berisi "com.example.vspace:p0" dan /proc/self/maps memuat
- *     /data/app/com.example.vspace-*/base.apk (BUTUH native hook — di luar scope Java).
+ *     path /data/app/com.example.vspace-.../base.apk (BUTUH native hook, di luar scope Java).
  */
 object AntiVirtual {
     @Volatile private var installed = false
