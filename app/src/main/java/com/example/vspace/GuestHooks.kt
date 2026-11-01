@@ -147,9 +147,12 @@ object GuestHooks {
         if (comp != null && VirtualInstaller.exists(app, comp.packageName)) {
             val stub = Intent(intent)
             stub.setPackage(null)
-            // Semua Activity guest memakai stub yang sama: flag ini membuat sistem salah mengirim ke instance lain
+            // 0.2.25: SINGLE_TOP/REORDER_TO_FRONT dibuang (menyebabkan sistem re-focus instance stub lama,
+            // bukan buat yang baru). CLEAR_TOP DIPERTAHANKAN supaya instance stub lama dibuang dan
+            // Activity guest baru di-instantiate (bug CODM: CODMainActivity di-finish oleh Activity
+            // permission lama karena stub tidak di-recreate).
             stub.flags = stub.flags and (Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT).inv()
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT).inv()
             stub.component = ComponentName(app.packageName, "com.example.vspace.Stub$slot")
             stub.putExtra(Const.EXTRA_PKG, comp.packageName)
             stub.putExtra(Const.EXTRA_CLS, comp.className)

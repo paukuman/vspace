@@ -136,3 +136,14 @@ Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned
   - `Diag.prepareExternal` sekarang **opsional** (dibungkus try/catch sebagai info saja), tidak lagi jadi syarat. Kalau SE Linux blokir mkdir di `/storage`, tidak fatal.
   - Log tag `stor` di `boot.log`: `prepareAndPatch <pkg> base=<path> files=<ok>` + `ContextImpl dipatch -> ...`. Kalau `set <field> gagal` muncul, artinya nama field beda di SDK tertentu (butuh penyesuaian).
   - **Belum:** game yang cek `StatFs`/`File.getUsableSpace` langsung di `/storage/emulated/0` (bukan via Context API) masih bisa melihat storage asli; kalau boot.log menunjukkan kasus ini, langkah berikutnya hook `StatFs` atau preset `Environment.sUserRequired`.
+- **0.2.25** — GuestContext override external dirs + fix CODM stub flags + dump ContextImpl + testWrite.
+  - **Data user 0.2.24**: field `ContextImpl.mExternalFilesDir/mExternalCacheDir/mObbDir/mExternalFilesDirs/mExternalCacheDirs/mExternalMediaDirs` **TIDAK ADA** di MIUI A10 (NoSuchFieldException per field). Patch 0.2.24 = tidak berefek.
+  - **`Android/obb/<pkg>` & `Android/media/<pkg>` GAGAL dibuat** (SE Linux): `prepareExternal ... obb=GAGAL media=GAGAL`. Ini kemungkinan besar yang dibaca 8BP jadi 0 → "storage 20MB".
+  - **CODM**: `startActivity: CODMainActivity -> Stub0 flags=0x34000000` (NEW_TASK|CLEAR_TOP|SINGLE_TOP), tapi setelah itu transaksi **tanpa LaunchActivityItem** → karena SINGLE_TOP+CLEAR_TOP kita strip total, sistem cuma re-focus instance Stub0 lama (private permission). Lalu instance lama `finish()` → balik VSpace MainActivity. Bukan crash CODM.
+  - Fix:
+    - `GuestContext.kt` (BARU): `ContextWrapper` override `getExternalFilesDir(s)/CacheDir(s)/ObbDir(s)/MediaDirs` → arahkan ke `/data/.../ext/<pkg>/` (tidak sentuh `/storage`).
+    - `StorageHooks.prepareAndPatch`: dump semua field `ContextImpl` (untuk diagnosa generik), coba patch field (kalau ada), **instal `GuestContext` ke `guestApp.mBase`** (utama), lalu `testWrite` nyata ke path internal & `/storage` (untuk tahu SE Linux mengizinkan tulis atau tidak).
+    - `GuestHooks.rewriteStart`: **hanya strip SINGLE_TOP & REORDER_TO_FRONT**. CLEAR_TOP **dipertahankan** supaya sistem buang instance stub lama dan instantiate Activity guest baru.
+  - Log tag `stor` di `boot.log`: `ContextImpl fields (...)` (daftar field), `GuestContext dipasang ...`, `testWrite internal_...: OK ...`, `testWrite storage_data_files_...: WRITE GAGAL ...`/`OK`, dst.
+  - Bump versionCode 27, versionName 0.2.25.
+  - **Ditunggu**: user uji 0.2.25 → kirim boot.log + log biasa kalau masih error.
