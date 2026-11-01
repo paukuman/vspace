@@ -139,36 +139,45 @@ object Diag {
     }
 
     /**
-     * 0..5 detik, catat thread state semua thread
-     * (nama + state + stack) ke boot.log. Berguna untuk mendiagnosa "Unity stuck" (CODM
-     * blackscreen: log berhenti tepat setelah libunity.so dimuat).
+     * 0.2.28/0.2.30: sampler thread pasca-boot.
+     * Versi 0.2.28 hanya mengambil SATU sampel 3.5 detik pasca boot. CODM berhenti
+     * (blackscreen) setelah libunity.so dimuat (± 5.6 detik), jadi satu sampel terlalu
+     * dini. Versi ini mengambil 12 sampel tiap 5 detik (total 60 detik) supaya thread
+     * yang stuck setelah Unity mulai bisa ditangkap.
      */
-    fun threadWatchdog(pkg: String) {
+    @Volatile private var sampling = false
+    fun threadSampler(pkg: String, intervalMs: Long = 5000L, samples: Int = 12) {
+        if (sampling) return
+        sampling = true
         val th = Thread {
             try { Thread.sleep(3500) } catch (t: InterruptedException) { return@Thread }
-            try {
-                val all = Thread.getAllStackTraces()
-                val sb = StringBuilder("threads[$pkg] ${all.size} thread:")
-                val entries = all.entries.sortedBy { it.key.name }
-                for (entry in entries) {
-                    val t: Thread = entry.key
-                    val st: Array<StackTraceElement> = entry.value
-                    if (t === Thread.currentThread()) continue
-                    val name: String = t.name
-                    // Filter thread yang tidak relevan
-                    if (name.startsWith("vspace-maps") || name.startsWith("Binder:") ||
-                        name.startsWith("Signal Catcher") || name.startsWith("JDWP")) continue
-                    sb.append("\n   [").append(name).append("] state=").append(t.state.name)
-                    // Ambil 3 frame teratas saja
-                    for (frame in st.take(3)) {
-                        sb.append("\n      at ").append(frame.toString())
+            for (i in 1..samples) {
+                try {
+                    val all = Thread.getAllStackTraces()
+                    val sb = StringBuilder("threads#$i[$pkg] ${all.size} thread:")
+                    val entries = all.entries.sortedBy { it.key.name }
+                    for (entry in entries) {
+                        val t: Thread = entry.key
+                        val st: Array<StackTraceElement> = entry.value
+                        if (t === Thread.currentThread()) continue
+                        val name: String = t.name
+                        if (name.startsWith("vspace-maps") || name.startsWith("vspace-thr") ||
+                            name.startsWith("Binder:") || name.startsWith("Signal Catcher") ||
+                            name.startsWith("JDWP")) continue
+                        sb.append("\n   [").append(name).append("] state=").append(t.state.name)
+                        for (frame in st.take(3)) {
+                            sb.append("\n      at ").append(frame.toString())
+                        }
                     }
+                    VLog.bootOnly("thr", sb.toString())
+                } catch (t: Throwable) { VLog.bootE("thr", t) }
+                if (i < samples) {
+                    try { Thread.sleep(intervalMs) } catch (t: InterruptedException) { return@Thread }
                 }
-                VLog.bootOnly("thr", sb.toString())
-            } catch (t: Throwable) { VLog.bootE("thr", t) }
+            }
         }
         th.isDaemon = true
-        th.name = "vspace-thr-watchdog"
+        th.name = "vspace-thr-sampler"
         th.start()
     }
 
