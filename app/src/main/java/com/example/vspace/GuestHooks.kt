@@ -317,7 +317,12 @@ object GuestHooks {
         wrappedInstr.callApplicationOnCreate(guestApp)
         VLog.w("boot", "Application.onCreate selesai")
         Diag.snapshot("setelah-boot", g.pkg)
-        // 0.2.28: watchdog thread — kalau game stuck (mis. Unity di CODM), kita bisa lihat thread apa yang nyangkut.
-        try { Diag.threadWatchdog(g.pkg) } catch (t: Throwable) { VLog.bootE("thr", t) }
+        // 0.2.30: pasang hook diagnosa (uncaught exception, shutdown hook, Activity lifecycle)
+        // supaya kita tahu siapa yang memicu System.exit (8BP ErrorDialog) dan Activity mana
+        // yang terakhir aktif sebelum CODM blackscreen.
+        try { GuestEvents.install(guestApp, g.pkg) } catch (t: Throwable) { VLog.bootE("evt", t) }
+        // 0.2.28/0.2.30: sampler thread periodik (12x @5 dtk) — cukup untuk menangkap stuck
+        // setelah libunity.so dimuat, tanpa membanjiri boot.log.
+        try { Diag.threadSampler(g.pkg) } catch (t: Throwable) { VLog.bootE("thr", t) }
     }
 }

@@ -139,7 +139,7 @@ object Diag {
     }
 
     /**
-     * 0.2.28: watchdog pasca-boot. Setelah ~3.5 detik, catat thread state semua thread
+     * 0..5 detik, catat thread state semua thread
      * (nama + state + stack) ke boot.log. Berguna untuk mendiagnosa "Unity stuck" (CODM
      * blackscreen: log berhenti tepat setelah libunity.so dimuat).
      */
