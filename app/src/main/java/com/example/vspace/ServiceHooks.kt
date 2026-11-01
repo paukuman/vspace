@@ -180,11 +180,56 @@ object ServiceHooks {
                     return@newProxyInstance 0
                 }
                 rewrite(app, "am.${m.name}", args)
+                // 0.2.35: hide proses host "com.example.vspace:pN" dari daftar app proses —
+                // 8BP (Miniclip) memakai ini sebagai sinyal virtualisasi bersama getRunningServices.
+                if (m.name == "getRunningAppProcesses") {
+                    val raw = try {
+                        if (args == null) m.invoke(real) else m.invoke(real, *args)
+                    } catch (e: InvocationTargetException) { throw e.targetException }
+                    return@newProxyInstance filterRunningProcesses(raw, app.packageName)
+                }
+                if (m.name == "getRunningServices") {
+                    val raw = try {
+                        if (args == null) m.invoke(real) else m.invoke(real, *args)
+                    } catch (e: InvocationTargetException) { throw e.targetException }
+                    return@newProxyInstance filterRunningServices(raw, app.packageName)
+                }
                 if (args == null) m.invoke(real) else m.invoke(real, *args)
             } catch (e: InvocationTargetException) {
                 throw e.targetException
             }
         }
         Refl.set(singleton, "mInstance", proxy)
+    }
+
+    /** 0.2.35: buang proses milik host (com.example.vspace & sub-prosesnya) dari daftar. */
+    private fun filterRunningProcesses(raw: Any?, hostPkg: String): Any? {
+        @Suppress("UNCHECKED_CAST")
+        val list = raw as? List<Any?> ?: return raw
+        val filtered = list.filter { item ->
+            val pn = try {
+                item?.javaClass?.getMethod("processName")?.invoke(item) as? String
+            } catch (t: Throwable) { null }
+            pn == null || !(pn == hostPkg || pn.startsWith("$hostPkg:"))
+        }
+        if (filtered.size == list.size) return raw
+        VLog.w("svc", "getRunningAppProcesses: hide host (${list.size - filtered.size} proses)")
+        return filtered
+    }
+
+    /** 0.2.35: buang RunningServiceInfo dengan process berisi host pkg. */
+    private fun filterRunningServices(raw: Any?, hostPkg: String): Any? {
+        @Suppress("UNCHECKED_CAST")
+        val list = raw as? List<Any?> ?: return raw
+        val filtered = list.filter { item ->
+            val pn = try {
+                val f = item?.javaClass?.getDeclaredField("process")?.apply { isAccessible = true }
+                f?.get(item) as? String
+            } catch (t: Throwable) { null }
+            pn == null || !(pn == hostPkg || pn.startsWith("$hostPkg:"))
+        }
+        if (filtered.size == list.size) return raw
+        VLog.w("svc", "getRunningServices: hide host (${list.size - filtered.size} service)")
+        return filtered
     }
 }

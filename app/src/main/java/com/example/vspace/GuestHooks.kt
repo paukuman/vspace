@@ -369,9 +369,8 @@ object GuestHooks {
         // 0.2.31: skip-libs — baca files/skip_libs.txt (satu nama .so per baris), rename
         // <lib>.so menjadi <lib>.so.disabled supaya dlopen gagal cepat ("file not found")
         // alih-alih hang di JNI_OnLoad. User bisa restore manual kalau perlu.
-        // 0.2.33: auto-skip lib tgpa* di CODM (kandidat hang nativeLoad; user boleh
-        // restore .disabled kalau ternyata ini bukan penyebabnya).
-        try { autoSkipLibs(app, g.pkg, g.libDir) } catch (t: Throwable) { VLog.bootE("autoskip", t) }
+        // 0.2.35: AUTO_SKIP dikosongkan (lihat catatan di AUTO_SKIP). applySkipLibs
+        // tetap dipakai untuk skip manual via files/skip_libs.txt.
         try { applySkipLibs(app, g.pkg, g.libDir) } catch (t: Throwable) { VLog.bootE("skip", t) }
         // 0.2.16: diagnostik apa yang terlihat oleh native guest sebelum Application dibuat
         Diag.describe(app, g.pkg, appInfo, g.libDir)
@@ -441,14 +440,13 @@ object GuestHooks {
      * <libDir>/<nama> menjadi <nama>.disabled supaya dlopen gagal cepat. File .disabled
      * dipertahankan untuk restore manual oleh user.
      */
-    /** 0.2.33: daftar lib auto-skip per paket (hanya lib yang aman dinonaktifkan). */
-    private val AUTO_SKIP: List<Pair<(String) -> Boolean, List<String>>> = listOf(
-        // CODM global & Garena: libtgpa = Tencent GPU Accelerator, sering hang
-        // di JNI_OnLoad saat GL context belum siap; aman dinonaktifkan (game fallback).
-        ({ p: String ->
-            p.startsWith("com.activision") || p.contains("callofduty") || p == "com.garena.game.codm"
-        }) to listOf("libtgpa.so", "libtgpa_core.so", "libtgpa_middle.so")
-    )
+    /**
+     * 0.2.35: AUTO_SKIP sengaja DIKOSONGKAN. Log 0.2.34 membuktikan skip `libtgpa*` justru
+     * memicu `UnsatisfiedLinkError: libtgpa.so` di `CODMainActivity.<clinit>`
+     * (CODM memanggil System.loadLibrary("tgpa") secara eksplisit). Untuk skip manual,
+     * user bisa isi files/skip_libs.txt — itu tetap diproses oleh applySkipLibs().
+     */
+    private val AUTO_SKIP: List<Pair<(String) -> Boolean, List<String>>> = emptyList()
 
     private fun autoSkipLibs(app: Application, pkg: String, libDir: File) {
         val names = AUTO_SKIP.filter { (match, _) -> match(pkg) }.flatMap { it.second }.distinct()

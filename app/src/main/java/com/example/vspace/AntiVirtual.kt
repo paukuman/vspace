@@ -3,30 +3,25 @@ package com.example.vspace
 import android.app.Application
 
 /**
- * 0.2.32: anti-deteksi virtualisasi.
+ * Anti-deteksi virtualisasi.
  *
- * Log 0.2.31 mengungkap pesan 8 Ball Pool:
- *   "8 Ball Pool detected this app is in use in a virtualized environment.
- *    To protect you, the app will close. Support REF: 6913 8975:6E76:ADNW34"
+ * Log 0.2.31 mengungkap dialog 8 Ball Pool:
+ *   "8 Ball Pool detected this app is in use in a virtualized environment..."
  *
  * Signal publik yang biasa dipakai game (Miniclip/anti-cheat) untuk mendeteksi virtualisasi:
- *  1) Application.getProcessName() = "com.example.vspace:p0" (bukannya pkg guest).
- *  2) PackageManager bisa resolve "com.example.vspace" dari dalam guest.
- *  3) /proc/self/maps berisi path /data/app/com.example.vspace-* (BUTUH native hook —
- *     tidak bisa dihilangkan dari Java; di luar scope 0.2.32).
- *
- * 0.2.32 mengatasi (1) dan (2). Kalau setelah ini 8BP masih mendeteksi, sisa signal
- * hampir pasti (3) → perlu strategi LD_PRELOAD / ptrace / lsm hook.
+ *  1) Application.getProcessName() / ActivityThread.currentProcessName() = "com.example.vspace:p0"
+ *     (bukannya pkg guest).  → di-fix di sini.
+ *  2) PackageManager bisa resolve "com.example.vspace" dari dalam guest. → di-fix di GuestHooks.
+ *  3) getRunningAppProcesses() memuat "com.example.vspace:pN". → di-fix di ServiceHooks.
+ *  4) /proc/self/cmdline berisi "com.example.vspace:p0" dan /proc/self/maps memuat
+ *     /data/app/com.example.vspace-*/base.apk (BUTUH native hook — di luar scope Java).
  */
 object AntiVirtual {
     @Volatile private var installed = false
 
     /**
-     * 0.2.34: true hanya setelah hideProcessName selesai. GuestHooks memakai flag ini
-     * untuk menunda hide `getPackageInfo(hostPkg)` sampai framework selesai boot.
-     * Root cause crash 0.2.32/0.2.33: ActivityThread.handleBindApplication memanggil
-     * getApplicationInfo(hostPkg) di slot proses untuk membuat LoadedApk SENDIRI sebelum
-     * hook siap → proxy kita melempar NameNotFoundException → FATAL EXCEPTION.
+     * true hanya setelah hideProcessName selesai. GuestHooks memakai flag ini untuk
+     * menunda hide `getPackageInfo(hostPkg)` sampai framework selesai boot.
      */
     @Volatile var armed = false
         private set
@@ -39,15 +34,46 @@ object AntiVirtual {
     }
 
     private fun hideProcessName(pkg: String) {
-        // Application.sProcessName — static field, dibaca oleh Application.getProcessName()
-        // dan ActivityThread.currentProcessName().
+        // Path A: Application.sProcessName (static field, API 31+). Di Android 10 tidak ada.
+        var done = false
         try {
             val f = Application::class.java.getDeclaredField("sProcessName").apply { isAccessible = true }
             val old = try { f.get(null) } catch (t: Throwable) { "?" }
             f.set(null, pkg)
             VLog.bootOnly("av", "Application.sProcessName $old -> $pkg")
+            done = true
+        } catch (t: NoSuchFieldException) {
+            VLog.bootOnly("av", "Application.sProcessName tidak ada (SDK<31), fallback")
         } catch (t: Throwable) {
-            VLog.bootOnly("av", "sProcessName gagal: ${t.javaClass.simpleName}: ${t.message}")
+            VLog.bootOnly("av", "sProcessName: ${t.javaClass.simpleName}: ${t.message}")
         }
+
+        // Path B: ActivityThread.currentProcessName() membaca instance field mProcessName.
+        // Ini jalur yang dipakai Application.getProcessName() (API 28+) dan
+        // ActivityThread.currentProcessName() statis. Di A10 inilah satu-satunya yang ada.
+        try {
+            val at = Class.forName("android.app.ActivityThread")
+            val cur = at.getDeclaredMethod("currentActivityThread").apply { isAccessible = true }.invoke(null)
+            if (cur != null) {
+                val f = at.getDeclaredField("mProcessName").apply { isAccessible = true }
+                val old = try { f.get(cur) } catch (t: Throwable) { "?" }
+                f.set(cur, pkg)
+                VLog.bootOnly("av", "ActivityThread.mProcessName $old -> $pkg")
+                done = true
+            }
+        } catch (t: Throwable) {
+            VLog.bootOnly("av", "ActivityThread.mProcessName gagal: ${t.javaClass.simpleName}: ${t.message}")
+        }
+
+        // Path C: Application.setProcessName(String) (static, API 31+).
+        try {
+            val m = Application::class.java.getDeclaredMethod("setProcessName", String::class.java)
+            m.invoke(null, pkg)
+            VLog.bootOnly("av", "Application.setProcessName -> $pkg")
+            done = true
+        } catch (t: NoSuchMethodException) { /* A10: tidak ada */ }
+        catch (t: Throwable) { VLog.bootOnly("av", "setProcessName: ${t.message}") }
+
+        if (!done) VLog.bootOnly("av", "SEMUA path hideProcessName gagal")
     }
 }

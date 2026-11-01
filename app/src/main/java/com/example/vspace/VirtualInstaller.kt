@@ -212,7 +212,24 @@ object VirtualInstaller {
         dir.listFiles()?.filter { it.isFile && it.name.endsWith(".apk") && it.name != "base.apk" }
             ?.forEach { it.setWritable(true); it.delete() }
         File(dir, "splits").let { sd -> sd.listFiles()?.forEach { it.setWritable(true); it.delete() }; sd.delete() }
-        val splits = splitSrc.map { s -> File(dir, s.name).also { s.copyTo(it, overwrite = true) } }
+        // 0.2.35: verifikasi split APK setelah copy. Log 0.2.34 menemukan
+        // "split_AssetPackPatch1.apk Invalid file" pada CODM → Resources null →
+        // NPE MiuiMultiWindowAdapter. Copy terputus atau file 0 byte adalah penyebabnya.
+        val splits = ArrayList<File>()
+        for (s in splitSrc) {
+            val dst = File(dir, s.name)
+            s.copyTo(dst, overwrite = true)
+            val ok = try {
+                if (dst.length() <= 0 || dst.length() != s.length()) false
+                else ZipFile(dst).use { true }
+            } catch (t: Throwable) { false }
+            if (!ok) {
+                dst.delete()
+                VLog.w("install", "split ${s.name} corrupt (src=${s.length()}B dst=${dst.length()}B) — dilewati")
+                continue
+            }
+            splits.add(dst)
+        }
         val allApks = listOf(apk) + splits
 
         // Native lib dari base + semua split, sesuai bitness proses host
@@ -243,6 +260,13 @@ object VirtualInstaller {
             }
         }
         File(dir, "abi.txt").writeText(chosen ?: "")
+        // 0.2.35: verifikasi base.apk juga (jangan set read-only kalau corrupt)
+        try {
+            ZipFile(apk).use { }
+        } catch (t: Throwable) {
+            apk.setWritable(true); apk.delete()
+            error("base.apk corrupt setelah copy (${apk.length()}B): ${t.message}")
+        }
         allApks.forEach { it.setReadOnly() } // dex wajib read-only di Android 14+
 
         return describe(ctx, dir, true)!!
