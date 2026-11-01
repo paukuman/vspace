@@ -72,14 +72,14 @@ object Diag {
         try {
             val loader = File(libDir, "libloader.so")
             val loaderInfo = if (loader.exists()) "${loader.length()}B" else "tidak ada"
-            VLog.w(
+            VLog.bootOnly(
                 "boot",
                 "lingkungan guest $pkg: sourceDir=${ai.sourceDir} lib=${ai.nativeLibraryDir} data=${ai.dataDir} " +
                     "uid=${ai.uid} myUid=${Process.myUid()} 64bit=${Process.is64Bit()} " +
                     "hostApk=${app.applicationInfo.sourceDir} libloader.so=$loaderInfo"
             )
         } catch (t: Throwable) {
-            VLog.e("boot", t)
+            VLog.bootE("boot", t)
         }
     }
 
@@ -102,9 +102,9 @@ object Diag {
                 res.add("$rel=${if (ok) "OK" else "GAGAL"}")
             }
             val state = try { android.os.Environment.getExternalStorageState() } catch (t: Throwable) { "?" }
-            VLog.w("ext", "prepareExternal $pkg (base=${ext.absolutePath} state=$state): ${res.joinToString(" ")}")
+            VLog.bootOnly("ext", "prepareExternal $pkg (base=${ext.absolutePath} state=$state): ${res.joinToString(" ")}")
         } catch (t: Throwable) {
-            VLog.e("ext", t)
+            VLog.bootE("ext", t)
         }
     }
 
@@ -129,9 +129,9 @@ object Diag {
                 } catch (t: Throwable) { "err=${t.javaClass.simpleName}" }
                 sb.append("\n   ${p.absolutePath} exists=${p.exists()} $info")
             }
-            VLog.w("diag", sb.toString())
+            VLog.bootOnly("diag", sb.toString())
         } catch (t: Throwable) {
-            VLog.e("diag", t)
+            VLog.bootE("diag", t)
         }
     }
 }

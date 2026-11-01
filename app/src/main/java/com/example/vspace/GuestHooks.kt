@@ -154,7 +154,7 @@ object GuestHooks {
             stub.putExtra(Const.EXTRA_PKG, comp.packageName)
             stub.putExtra(Const.EXTRA_CLS, comp.className)
             args[intentIdx] = stub
-            VLog.w("startActivity", "${comp.packageName}/${comp.className} -> Stub$slot")
+            VLog.w("startActivity", "${comp.packageName}/${comp.className} -> Stub$slot flags=0x${Integer.toHexString(intent.flags)} action=${intent.action} data=${intent.dataString}")
         } else {
             VLog.w("startActivity", "tidak diubah: intent=$intent")
         }

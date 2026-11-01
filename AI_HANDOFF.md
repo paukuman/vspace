@@ -123,3 +123,9 @@ Pola error -> perbaikan: "does not belong to"/"package name mismatch"/"not owned
   - `Diag.describeStorage(pkg, ai)` (tag `diag`): `StatFs.availableBytes` untuk `/data`, `/storage/emulated/0`, `Android/{data,obb,media}/<pkg>`, dataDir guest, folder APK guest.
   - Keduanya dipanggil dari `GuestHooks.bootGuest` setelah `Diag.snapshot("sebelum-boot", ...)`.
   - Belum diubah: hook `StatFs`/`File.getUsableSpace` di tingkat JDK (butuh bytecode instrumentation). Kalau mkdirs gagal karena SE Linux, opsi berikut: (a) symlink ke `getExternalFilesDir(null)` VSpace, (b) hook `Environment.getExternalStorageDirectory()`. Ditunggu bukti dari log 0.2.22.
+- **0.2.23** — Log boot terpisah + tombol "Salin boot log".
+  - Gejala: 0.2.22 diuji user, MASIH error 8BP "storage 20MB" & CODM fc setelah izin. Log user TIDAK menunjukkan baris `ext:`/`diag:` karena `takeLast(60000)` memotong head `vspace.log`.
+  - Fix: `VLog.bootOnly/bootRead/bootE` tulis ke `filesDir/boot.log` terpisah (disertakan di `readAll` maks 120k). `Diag.describe/prepareExternal/describeStorage` menulis ke `boot.log`. Tombol baru "Salin boot log" di MainActivity. "Hapus log" juga hapus boot.log.
+  - `LogcatDump` buffer system: filter LIFE diperluas (`ActivityManager|Force finishing|Killing|has died|force-stop|ANR in`).
+  - `GuestHooks.rewriteStart`: log `flags/action/data` intent saat rewrite (lacak `finish()`/mode launch CODM).
+  - Ditunggu: kirim `boot.log` via tombol baru. Fokus baris `ext:` & `diag:`.

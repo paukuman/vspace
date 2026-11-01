@@ -27,7 +27,8 @@ object LogcatDump {
 
     private val LIFE = Regex(
         "am_proc_start|am_proc_died|am_kill|am_crash|am_anr|am_low_memory|am_restart|" +
-        "lowmemorykiller|lmkd|SIGKILL|SIGSEGV|SIGABRT| died| killed"
+        "lowmemorykiller|lmkd|SIGKILL|SIGSEGV|SIGABRT| died| killed|" +
+        "ActivityManager|Force finishing|Killing|has died|force-stop|ANR in"
     )
     private val SPAM_TAG = setOf(
         "FA", "FirebaseMessaging", "FirebaseInitProvider", "AppLovinSdk", "AppLovin",

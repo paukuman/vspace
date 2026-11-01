@@ -71,6 +71,12 @@ class MainActivity : Activity() {
             cm.setPrimaryClip(ClipData.newPlainText("vspace-logcat", s))
             log.text = "Logcat disalin (${s.length} char)"
         })
+        row.addView(btn("Salin boot log") {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val s = VLog.bootRead()
+            cm.setPrimaryClip(ClipData.newPlainText("vspace-boot", s))
+            log.text = "Boot log disalin (${s.length} char). Tempel di chat."
+        })
         container.addView(row)
         val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row2.addView(btn("Ambil logcat") {
