@@ -165,6 +165,10 @@ object Diag {
                 if (mainStuck) {
                     streak++
                     VLog.bootOnly("sigquit", "main nativeLoad terdeteksi (streak=$streak, +${(SystemClock.uptimeMillis()-start)/1000}s)")
+                    // 0.2.32: baca /proc/self/task/<main_tid>/<file> tiap 2 detik (readable untuk
+                    // proses sendiri; SIGQUIT sebelumnya tidak menghasilkan native dump karena
+                    // debuggerd butuh ptrace untuk app non-debuggable).
+                    probeMainTask(streak)
                     if (streak >= (thresholdMs / 2000L).toInt()) {
                         sigquitSent = true
                         val pid = android.os.Process.myPid()
@@ -172,6 +176,15 @@ object Diag {
                         try {
                             Runtime.getRuntime().exec(arrayOf("kill", "-3", pid.toString())).waitFor()
                         } catch (t: Throwable) { VLog.bootE("sigquit", t) }
+                        // 0.2.32 fallback: kalau masih stuck > 30 dtk, kirim SIGABRT ke diri sendiri
+                        // → tombstone masuk crash buffer (bisa dibaca di logcat.log).
+                        try { Thread.sleep(15_000L) } catch (t: InterruptedException) { return@Thread }
+                        if (mainInNativeLoad()) {
+                            VLog.bootOnly("sigquit", "SIGABRT fallback ke pid=$pid (masih stuck >30 dtk)")
+                            try {
+                                Runtime.getRuntime().exec(arrayOf("kill", "-6", pid.toString())).waitFor()
+                            } catch (t: Throwable) { VLog.bootE("sigquit", t) }
+                        }
                         return@Thread
                     }
                 } else {
@@ -182,6 +195,37 @@ object Diag {
         th.isDaemon = true
         th.name = "vspace-sigquit-watch"
         th.start()
+    }
+
+    /**
+     * 0.2.32: baca /proc/self/task/<main_tid>/{comm,wchan,syscall,stack} — untuk diagnosa
+     * nativeLoad hang di CODM saat SIGQUIT tidak menghasilkan dump (butuh ptrace).
+     * `syscall` = "syscall_no arg0 arg1 ... sp pc"; kita mau tahu syscall apa yang ditunggu
+     * (futex? read? ptrace? dsb) dan wchan (kernel function).
+     */
+    private fun probeMainTask(streak: Int) {
+        try {
+            val tid = Process.myPid()
+            val dir = File("/proc/self/task/$tid")
+            if (!dir.exists()) return
+            fun readOr(f: String): String = try {
+                File(dir, f).readText().trim().take(400)
+            } catch (t: Throwable) { "(err ${t.javaClass.simpleName})" }
+            val sb = StringBuilder("native#$streak:")
+            sb.append("\n  comm  = ").append(readOr("comm"))
+            sb.append("\n  wchan = ").append(readOr("wchan"))
+            sb.append("\n  stat  = ").append(readOr("stat"))
+            sb.append("\n  syscall = ").append(readOr("syscall"))
+            sb.append("\n  stack = ").append(readOr("stack"))
+            sb.append("\n  status.filter = ")
+            try {
+                File(dir, "status").readLines().filter {
+                    it.startsWith("State:") || it.startsWith("voluntary") || it.startsWith("nonvoluntary") ||
+                        it.startsWith("SigQ:") || it.startsWith("SigBlk:") || it.startsWith("SigIgn:")
+                }.forEach { sb.append("\n    ").append(it) }
+            } catch (t: Throwable) { sb.append("(err)") }
+            VLog.bootOnly("native", sb.toString())
+        } catch (t: Throwable) { VLog.bootE("native", t) }
     }
 
     private fun mainInNativeLoad(): Boolean {

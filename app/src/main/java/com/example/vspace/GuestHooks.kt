@@ -82,6 +82,13 @@ object GuestHooks {
             if (args != null && args.isNotEmpty() && args[0] is String) {
                 val name = m.name
                 val target = args[0] as String
+                // 0.2.32: pkg HOST sendiri (com.example.vspace) disembunyikan dari guest.
+                // 8BP memanggil getPackageInfo("com.example.vspace") untuk deteksi virtualisasi.
+                if ((name == "getPackageInfo" || name == "getApplicationInfo") && target == app.packageName) {
+                    throw android.content.pm.PackageManager.NameNotFoundException(
+                        "Package $target not found (hidden by VSpace)"
+                    )
+                }
                 if ((name == "getPackageInfo" || name == "getApplicationInfo") && VirtualInstaller.exists(app, target)) {
                     val g = VirtualInstaller.get(app, target, withLabel = false)
                     if (g != null) {
@@ -332,6 +339,9 @@ object GuestHooks {
         // 0.2.31: kalau main thread hang di Runtime.nativeLoad > 15 dtk, kirim SIGQUIT
         // supaya native stack dump muncul di logcat (satu-satunya cara lihat frame native).
         try { Diag.nativeLoadWatchdog(g.pkg) } catch (t: Throwable) { VLog.bootE("sigquit", t) }
+        // 0.2.32: sembunyikan identitas host (sProcessName, pkg host) dari guest supaya
+        // anti-cheat 8BP tidak mendeteksi "virtualized environment".
+        try { AntiVirtual.install(guestApp, g.pkg) } catch (t: Throwable) { VLog.bootE("av", t) }
     }
 
     /**
