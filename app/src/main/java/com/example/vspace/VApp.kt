@@ -10,6 +10,22 @@ import java.io.File
 class VApp : Application() {
     companion object {
         lateinit var instance: VApp
+        @Volatile var nativeReady = false
+        @JvmStatic external fun nativeInit()
+        @JvmStatic external fun nativeSetGuestPkg(pkg: String)
+        init {
+            // 0.2.38: hook /proc/self/maps + readlink /proc/self/exe + dlopen logger.
+            // Dimuat di semua proses; di proses main filter /proc hanya no-op karena
+            // g_guest_pkg kosong sampai nativeSetGuestPkg dipanggil saat bootGuest.
+            try {
+                System.loadLibrary("vspace_hooks")
+                nativeInit()
+                nativeReady = true
+                android.util.Log.i("VSpace", "vspace_hooks loaded & init ok")
+            } catch (t: Throwable) {
+                android.util.Log.e("VSpace", "vspace_hooks gagal load", t)
+            }
+        }
     }
 
     override fun attachBaseContext(base: Context) {

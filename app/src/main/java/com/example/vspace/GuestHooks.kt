@@ -366,6 +366,10 @@ object GuestHooks {
     /** Meniru ActivityThread.handleBindApplication untuk paket guest (sekali per proses). */
     private fun bootGuest(app: Application, g: Guest, appInfo: ApplicationInfo, item: Any) {
         if (!booted.add(g.pkg)) return
+        // 0.2.38: beri tahu native layer paket guest SEBELUM dlopen/.so apa pun.
+        // Tanpa ini, library anti-cheat (libloader.so 8BP) bisa baca /proc/self/maps
+        // sebelum filter aktif. Bukti: vspace.log maps bocorkan /data/app/com.example.vspace-XXX/base.apk.
+        try { VApp.nativeSetGuestPkg(g.pkg) } catch (t: Throwable) { VLog.bootE("nat", t) }
         // 0.2.31: skip-libs — baca files/skip_libs.txt (satu nama .so per baris), rename
         // <lib>.so menjadi <lib>.so.disabled supaya dlopen gagal cepat ("file not found")
         // alih-alih hang di JNI_OnLoad. User bisa restore manual kalau perlu.
